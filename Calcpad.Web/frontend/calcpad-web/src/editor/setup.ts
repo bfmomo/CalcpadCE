@@ -94,9 +94,7 @@ export function createCalcpadEditor(
         wordWrap: options?.wordWrap ?? 'on',
         tabSize: 4,
         insertSpaces: true,
-        // Rainbow bracket colorization clobbers the theme's `bracket` token
-        // color. VS Code extension disables it for the same reason.
-        bracketPairColorization: { enabled: false },
+        bracketPairColorization: { enabled: true },
         matchBrackets: 'always',
         'semanticHighlighting.enabled': true,
         // Match VS Code's default-but-flipped suggest behavior: Tab accepts

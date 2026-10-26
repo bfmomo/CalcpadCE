@@ -56,6 +56,7 @@ export const calcpadLanguageConfiguration: monaco.languages.LanguageConfiguratio
         ['{', '}'],
         ['[', ']'],
     ],
+    colorizedBracketPairs: [['(', ')']],
     autoClosingPairs: [
         { open: '(', close: ')' },
         { open: '{', close: '}' },
