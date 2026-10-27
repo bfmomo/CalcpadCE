@@ -49,6 +49,12 @@ export const calcpadDarkTheme: monaco.editor.IStandaloneThemeData = {
         'editor.inactiveSelectionBackground': '#3a3d41',
         'editorBracketMatch.background': '#0064001a',
         'editorBracketMatch.border': '#888888',
+        'editorBracketHighlight.foreground1': '#FF69B4',
+        'editorBracketHighlight.foreground2': '#FFD700',
+        'editorBracketHighlight.foreground3': '#DA70D6',
+        'editorBracketHighlight.foreground4': '#4EC96A',
+        'editorBracketHighlight.foreground5': '#FF9D00',
+        'editorBracketHighlight.foreground6': '#179FFF',
         // Monaco cannot read CSS variables, so these repeat vscode-variables.css (:root).
         // check-contrast.mjs asserts they stay in sync.
         focusBorder: '#007fd4',
@@ -114,6 +120,12 @@ export const calcpadLightTheme: monaco.editor.IStandaloneThemeData = {
         'editor.inactiveSelectionBackground': '#e5ebf1',
         'editorBracketMatch.background': '#0064001a',
         'editorBracketMatch.border': '#b9b9b9',
+        'editorBracketHighlight.foreground1': '#D6006E',
+        'editorBracketHighlight.foreground2': '#00CC33',
+        'editorBracketHighlight.foreground3': '#9900CC',
+        'editorBracketHighlight.foreground4': '#FF6600',
+        'editorBracketHighlight.foreground5': '#800000',
+        'editorBracketHighlight.foreground6': '#008000',
         // Literals duplicated from vscode-variables.css (light block).
         focusBorder: '#0090f1',
         'editorWidget.background': '#f3f3f3',

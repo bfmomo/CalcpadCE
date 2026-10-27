@@ -56,6 +56,10 @@ jobs:
           npm ci --prefix calcpad-web
           npm ci --prefix vscode-calcpad
 
+      - name: Test Monaco language
+        working-directory: .
+        run: node --test tools/monaco-language.test.mjs
+
       - name: Frontend lib
         if: ${{ !cancelled() }}
         working-directory: Calcpad.Web/frontend/calcpad-frontend
