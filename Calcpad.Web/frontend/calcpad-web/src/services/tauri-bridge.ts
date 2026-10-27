@@ -310,6 +310,14 @@ export class TauriMessageBridge extends BaseMessageBridge {
     }
 
     protected async saveExportedFile(req: ExportRequest): Promise<string | null> {
+        if (req.extensions[0] === 'pdf' || req.extensions[0] === 'docx') {
+            const filename = pathBasename(this.getExportDefaultPath(req) ?? req.defaultName);
+            const filePath = await invoke<string>('create_export_path', { filename });
+            const bytes = req.data instanceof Uint8Array ? req.data : new Uint8Array(req.data as ArrayBuffer);
+            await fsWriteFile(filePath, bytes);
+            await this.openPathSafe(filePath);
+            return filePath;
+        }
         const chosen = await dialogSave({
             title: req.dialogTitle,
             defaultPath: this.getExportDefaultPath(req),
@@ -327,16 +335,6 @@ export class TauriMessageBridge extends BaseMessageBridge {
             await fsWriteFile(filePath, bytes);
         }
         return filePath;
-    }
-
-    protected async onPdfSaved(filePath: string): Promise<void> {
-        const open = await dialogAsk(`PDF saved to ${filePath}`, {
-            title: 'PDF export complete',
-            kind: 'info',
-            okLabel: 'Open PDF',
-            cancelLabel: 'Close',
-        });
-        if (open) await this.openPathSafe(filePath);
     }
 
     protected async buildFileContext(_content: string): Promise<{ sourceFilePath?: string }> {

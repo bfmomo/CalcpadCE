@@ -67,20 +67,78 @@ select option {
     pointer-events: none;
 }
 
-/* Wrappers around the editor and preview panes. Normally they contribute nothing:
-   `display: contents` dissolves them so their children are direct flex items of
-   `.app-layout` and sit side by side. In #UI input mode `.work-area` becomes a column
-   instead, which stacks the surviving tab strip above the form. */
-.work-area,
-.preview-area {
-    display: contents;
-}
-
-.work-area.ui-mode {
+.work-area {
     display: flex;
     flex-direction: column;
     flex: 1;
     min-width: 0;
+    min-height: 0;
+}
+
+.document-tabs {
+    --document-toolbar-gap: 8px;
+    display: flex;
+    flex-shrink: 0;
+    min-width: 0;
+    background: var(--vscode-editorGroupHeader-tabsBackground);
+}
+
+.document-tabs .tab-strip {
+    flex: 1;
+    min-width: min(120px, 30%);
+}
+
+.document-tabs .tab-strip.active-group {
+    box-shadow: inset 0 2px 0 var(--vscode-focusBorder);
+}
+
+.results-toolbar {
+    display: flex;
+    align-items: center;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 75%;
+    gap: var(--document-toolbar-gap);
+    padding: 0 0 0 var(--document-toolbar-gap);
+    overflow-x: auto;
+    scrollbar-width: none;
+    border-bottom: 1px solid var(--vscode-editorGroupHeader-tabsBorder, #1e1e1e);
+}
+
+.results-toolbar::-webkit-scrollbar {
+    display: none;
+}
+
+.results-toolbar > *,
+.results-toolbar button {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.results-toolbar .preview-mode-group {
+    margin-left: 0;
+    gap: 4px;
+}
+
+.document-tabs > .tab-actions {
+    gap: 4px;
+    padding: 0 var(--document-toolbar-gap);
+    border-bottom: 1px solid var(--vscode-editorGroupHeader-tabsBorder, #1e1e1e);
+}
+
+.document-panes {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+}
+
+.preview-area {
+    display: contents;
+}
+
+.work-area.ui-mode .document-panes {
+    flex-direction: column;
 }
 
 /* Just the tab strip is left, so the editor side hugs its content and the panes
@@ -493,7 +551,6 @@ button.tab-new:hover {
     align-items: stretch;
     flex-shrink: 0;
     background: var(--vscode-editorGroupHeader-tabsBackground, #252526);
-    border-left: 1px solid var(--vscode-widget-border, #454545);
 }
 
 .tab-actions button,
@@ -503,8 +560,8 @@ button.tab-new:hover {
 
 .tab-actions svg,
 .results-sidebar-toggle svg {
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 16px;
 }
 
 .results-sidebar-toggle {
@@ -681,7 +738,7 @@ button.tab-new:hover {
 /* Find-in-preview widget (VS Code editor-find analog), floated top-right. */
 .preview-find {
     position: absolute;
-    top: 36px;
+    top: 6px;
     right: 18px;
     z-index: 1000;
     display: flex;

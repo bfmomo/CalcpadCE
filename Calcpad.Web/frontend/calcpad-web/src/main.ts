@@ -550,7 +550,6 @@ async function bootstrap(): Promise<void> {
         const compiled = !!path && isCompiledPath(path);
         group.editor.updateOptions({ readOnly: compiled });
         if (group === activeGroup) {
-            syncSourceModeMenuItems(!compiled);
             syncInputMode();
         }
         if (compiled && appInstance.getResultMode() !== 'ui') {
@@ -602,18 +601,6 @@ async function bootstrap(): Promise<void> {
         if (!appInstance.isPreviewVisible()) appInstance.togglePreview();
         void appInstance.setResultMode('ui');
         autoUiSwitchInFlight = false;
-    }
-
-    /**
-     * The result modes a compiled worksheet has nothing to render for, so the native View
-     * menu drops the matching entries rather than greying them. Only the desktop build has
-     * a menu — elsewhere `invokeTauri` stays null and the App.vue guard is the whole story.
-     */
-    let sourceModeMenuShown = true;
-    function syncSourceModeMenuItems(shown: boolean): void {
-        if (shown === sourceModeMenuShown) return;
-        sourceModeMenuShown = shown;
-        void invokeTauri?.('set_source_result_modes_visible', { visible: shown });
     }
 
     /**
@@ -929,6 +916,7 @@ async function bootstrap(): Promise<void> {
             ? `${active.title} – CalcpadCE ${appVersion}`
             : `CalcpadCE ${appVersion}`;
         document.title = title;
+        appInstance.setWindowTitle(active?.title ?? 'CalcpadCE');
         setNativeTitle?.(title);
     }
 
@@ -1006,7 +994,6 @@ async function bootstrap(): Promise<void> {
                 const curText = model.getLineContent(curLine);
 
                 const focusMetadata = () => {
-                    sidebarInstance.switchView?.('calcpad');
                     // switchTab('metadata') posts getMetadataContext, which the
                     // bridge resolves against the (now-updated) cursor line.
                     sidebarInstance.switchTab?.('metadata');
@@ -1390,6 +1377,8 @@ async function bootstrap(): Promise<void> {
     registerFormatDocumentProvider(editorBridge);
 
     window.addEventListener('message', (e: MessageEvent) => {
+        if (e.data?.type === 'autoRunChanged') appInstance.setAutoRunEnabled(e.data.enabled);
+        if (e.data?.type === 'settingsResponse') appInstance.setAutoRunEnabled(e.data.enableAutoRun);
         if (e.data?.type === 'linterMinSeverityChanged') {
             for (const g of groups.values()) void g.diagnostics?.refresh();
         }
@@ -1416,6 +1405,8 @@ async function bootstrap(): Promise<void> {
             appInstance.appendOutput('error', String(e.data.message ?? 'Export failed'));
         }
     });
+
+    appInstance.setAutoRunEnabled(editorBridge.getExtraSetting('autoRun') !== 'false');
 
     // Apply persisted cap at startup — the sidebar's settingsResponse will
     // sync it too, but the log wiring below can fire before that arrives.
@@ -1746,8 +1737,7 @@ async function bootstrap(): Promise<void> {
         void handleEmptyGroup(g);
     };
 
-    // Mount the CalcPad Vue sidebar. Desktop (Tauri) shows the Files view
-    // + activity icons; web mode keeps the original single-panel look.
+    // Mount the Calcpad sidebar; Files is available on desktop.
     const versionConfig = {
         isVSCode: false,
         isWeb: !isTauri,
@@ -1766,10 +1756,9 @@ async function bootstrap(): Promise<void> {
         }
     }, true);
 
-    // Settings lives in the CalcpadCE view, which the Files view or a collapsed sidebar hides.
+    // Reveal the sidebar before opening Settings.
     function openSettings(): void {
         appInstance.showSidebar();
-        sidebarInstance.switchView?.('calcpad');
         sidebarInstance.switchTab?.('settings');
     }
 
@@ -2071,12 +2060,6 @@ async function bootstrap(): Promise<void> {
         // Route Ctrl+Shift+V "Paste as Comment" through the same Tauri-native
         // clipboard as the rest of the app (WebKitGTK workaround).
         editorBridge.readClipboardText = () => tauriClipboard.readText();
-        // The seeded tab decided the menu state before `invoke` existed, so the cached flag
-        // is inverted here to defeat the no-op guard and let the real state through.
-        const sourceModesShown = appInstance.resultModeAvailable('unwrapped');
-        sourceModeMenuShown = !sourceModesShown;
-        syncSourceModeMenuItems(sourceModesShown);
-
         // ---- Autosave drafts (10s debounce per tab) ----
         // Rust owns the on-disk drafts dir (<app_data>/drafts) and each tab is assigned a
         // stable UUID on first autosave. Tab ids are namespaced per group, so drafts never
@@ -2731,8 +2714,7 @@ async function bootstrap(): Promise<void> {
         }
 
         // Native menu clicks arrive as Tauri events emitted by the Rust menu handler.
-        await listenHere<{ id: string }>('menu-click', async (evt) => {
-            const id: string = evt.payload.id;
+        const runMenuCommand = async (id: string): Promise<void> => {
 
             // Result mode picker (View → Result Mode: Preview/Unwrapped/Input/Report)
             if (id.startsWith('result-mode:')) {
@@ -2903,7 +2885,9 @@ async function bootstrap(): Promise<void> {
                     break;
                 }
             }
-        });
+        };
+        appInstance.onCommandRequest = (id: string) => { void runMenuCommand(id); };
+        await listenHere<{ id: string }>('menu-click', (evt) => { void runMenuCommand(evt.payload.id); });
 
         // Server stderr (captured by start-server.sh) and PDF errors flow
         // through bridge → window message → Output panel.

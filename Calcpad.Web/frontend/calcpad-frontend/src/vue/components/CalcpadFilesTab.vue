@@ -12,7 +12,7 @@
         <span class="files-folder-name" :title="openedFolder">{{ folderBasename }}</span>
         <div class="files-header-actions">
           <button class="icon" @click="onRefresh" title="Refresh">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M13.65 2.35A7 7 0 1 0 15 8h-1.5a5.5 5.5 0 1 1-1.6-4.9L9.5 5.5H15V0l-1.35 2.35z"/></svg>
+            <RefreshIcon />
           </button>
           <button class="icon" @click="collapseAll" title="Collapse All">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M4 9h11v1H4z"/></svg>
@@ -66,6 +66,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import type { FileNode } from '../types'
 import FileTreeNode from './FileTreeNode.vue'
+import RefreshIcon from './RefreshIcon.vue'
 import type { ContextMenuPayload } from './FileTreeNode.vue'
 import { writeClipboard } from '../services/clipboard'
 
