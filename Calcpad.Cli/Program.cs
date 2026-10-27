@@ -728,6 +728,10 @@ namespace Calcpad.Cli
 
         private static string GetCurrentCultureName()
         {
+            var overrideName = Environment.GetEnvironmentVariable("CALCPAD_CULTURE");
+            if (overrideName is "en" or "bg" or "zh")
+                return overrideName;
+
             string lang = Thread.CurrentThread.CurrentCulture.TwoLetterISOLanguageName;
             if (lang is "en" or "bg" or "zh")
                 return lang;
