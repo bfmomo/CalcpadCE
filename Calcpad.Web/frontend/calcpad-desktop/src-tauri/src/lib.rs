@@ -16,6 +16,12 @@ use tauri_plugin_window_state::StateFlags;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::mpsc;
 
+mod navigation_history;
+use navigation_history::{
+    complete_navigation, navigate_history, record_navigation, remove_navigation,
+    NavigationHistoryState,
+};
+
 // Populated at setup(); read from the panic hook (which has no AppHandle).
 static CRASH_DIR: OnceLock<PathBuf> = OnceLock::new();
 static DRAFTS_DIR: OnceLock<PathBuf> = OnceLock::new();
@@ -1837,6 +1843,7 @@ pub fn run() {
         .manage(PrimaryWindow::default())
         .manage(OpenFiles::default())
         .manage(MenuState::default())
+        .manage(NavigationHistoryState::default())
         .menu(|app| build_menu(app, MAIN_WINDOW_LABEL))
         .invoke_handler(tauri::generate_handler![
             server_url,
@@ -1865,6 +1872,10 @@ pub fn run() {
             set_open_files,
             navigate_to_open_file,
             new_window,
+            record_navigation,
+            remove_navigation,
+            navigate_history,
+            complete_navigation,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
@@ -1893,6 +1904,9 @@ pub fn run() {
                     .lock()
                     .expect("open files mutex poisoned")
                     .remove(window.label());
+                window
+                    .state::<NavigationHistoryState>()
+                    .remove_window(window.label());
                 window
                     .state::<MenuState>()
                     .source_result_modes

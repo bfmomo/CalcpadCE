@@ -256,10 +256,10 @@ export class TabManager {
      * Open a file in a new tab and return its id. A tab already holding that path is
      * activated instead, and `content` is ignored.
      */
-    openFile(filePath: string, content: string): string {
+    openFile(filePath: string, content: string, position?: monaco.IPosition): string {
         const existing = this.tabs.find(t => docFor(t.model).filePath === filePath);
         if (existing) {
-            this.activate(existing.id);
+            this.activate(existing.id, position);
             return existing.id;
         }
 
@@ -274,12 +274,13 @@ export class TabManager {
             doc.title = baseName(filePath);
             doc.savedVersionId = active.model.getAlternativeVersionId();
             active.dirty = false;
+            this.activate(active.id, position);
             this.emit();
             return active.id;
         }
 
         const tab = this.createTab({ title: baseName(filePath), filePath, content });
-        this.activate(tab.id);
+        this.activate(tab.id, position);
         return tab.id;
     }
 
@@ -317,8 +318,14 @@ export class TabManager {
      * Switch the editor to the given tab. Saves the previous tab's view state
      * so cursor + scroll restore on switch-back.
      */
-    activate(id: string): void {
-        if (id === this._activeId) return;
+    activate(id: string, position?: monaco.IPosition): void {
+        if (id === this._activeId) {
+            if (position) {
+                this.editor.setPosition(position, 'code.jump');
+                this.editor.revealPositionInCenter(position);
+            }
+            return;
+        }
         const next = this.tabs.find(t => t.id === id);
         if (!next) return;
 
@@ -331,6 +338,10 @@ export class TabManager {
         this.editor.setModel(next.model);
         if (next.viewState) {
             this.editor.restoreViewState(next.viewState);
+        }
+        if (position) {
+            this.editor.setPosition(position, 'code.jump');
+            this.editor.revealPositionInCenter(position);
         }
         this.editor.focus();
         this.emit();

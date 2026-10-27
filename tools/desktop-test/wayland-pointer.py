@@ -75,7 +75,7 @@ for line in sys.stdin:
     if command['type'] == 'move':
         send(5, 1, integers(timestamp, command['x'], command['y'], command['width'], command['height']))
     elif command['type'] == 'button':
-        send(5, 2, integers(timestamp, 272, int(command['pressed'])))
+        send(5, 2, integers(timestamp, command['button'], int(command['pressed'])))
     else:
         raise ValueError(command)
     send(5, 4)

@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, test } from 'node:test';
 import { LinuxTestApp, until, invoke } from './linux-test-app.mjs';
 
-describe('Linux GTK document tabs', {skip: process.platform !== 'linux', concurrency: false}, () => {
+describe('Linux GTK editor', {skip: process.platform !== 'linux', concurrency: false}, () => {
     async function start(t) {
         const app = new LinuxTestApp();
         let main;
@@ -17,6 +19,156 @@ describe('Linux GTK document tabs', {skip: process.platform !== 'linux', concurr
             window.calcpadBridge.confirmThreeWay = async () => 'no';`);
         return {app, main};
     }
+
+    const content = Array.from({length: 80}, (_, i) => 'a' + i + ' = 1').join('\n');
+    const keyboard = (app, handle, direction) => direction === -1
+        ? app.keyChord(handle, 'ctrl', 'alt', 'minus')
+        : app.keyChord(handle, 'ctrl', 'shift', 'minus');
+    const at = (app, handle, tab, lineNumber, column) => until(() => app.evaluate(handle, `
+        window.calcpadTabs.activeId === ${JSON.stringify(tab)}
+        && window.calcpadActiveEditor.getPosition().lineNumber === ${lineNumber}
+        && window.calcpadActiveEditor.getPosition().column === ${column}`), `GTK history at ${tab}:${lineNumber}:${column}`);
+
+    test('navigation history restores cursor positions and selections with Linux shortcuts and mouse buttons', {timeout: 60000}, async t => {
+        const {app, main} = await start(t);
+        const first = await app.evaluate(main, `window.calcpadTabs.newUntitled(${JSON.stringify(content)}, 'History A');
+            window.calcpadActiveEditor.setPosition({lineNumber: 3, column: 2});
+            window.calcpadActiveEditor.setPosition({lineNumber: 30, column: 3});
+            window.calcpadTabs.activeId`);
+        await keyboard(app, main, -1);
+        await at(app, main, first, 3, 2);
+        await app.historyMouse(main, 1);
+        await at(app, main, first, 30, 3);
+        await app.historyMouse(main, -1);
+        await at(app, main, first, 3, 2);
+        await keyboard(app, main, 1);
+        await at(app, main, first, 30, 3);
+
+        await app.evaluate(main, `window.calcpadActiveEditor.setPosition({lineNumber: 33, column: 2});
+            window.calcpadBridge.handleMessage({type: 'goToLine', line: 36})`);
+        await at(app, main, first, 36, 1);
+        await keyboard(app, main, -1);
+        await at(app, main, first, 33, 2);
+        await keyboard(app, main, 1);
+        await at(app, main, first, 36, 1);
+
+        const selection = {selectionStartLineNumber: 36, selectionStartColumn: 5, positionLineNumber: 35, positionColumn: 2};
+        await app.evaluate(main, `window.calcpadActiveEditor.setSelection(${JSON.stringify(selection)});
+            window.calcpadActiveEditor.setPosition({lineNumber: 60, column: 1})`);
+        await keyboard(app, main, -1);
+        await at(app, main, first, 35, 2);
+        const restored = await app.evaluate(main, 'window.calcpadActiveEditor.getSelection()');
+        for (const [key, value] of Object.entries(selection)) assert.equal(restored[key], value);
+    });
+
+    test('navigation history accepts Linux shortcuts and side buttons from the preview', {timeout: 60000}, async t => {
+        const {app, main} = await start(t);
+        const id = await app.evaluate(main, `window.calcpadTabs.newUntitled(${JSON.stringify(content)}, 'Preview history');
+            window.calcpadActiveEditor.setPosition({lineNumber: 3, column: 2});
+            window.calcpadActiveEditor.setPosition({lineNumber: 30, column: 3});
+            window.calcpadTabs.activeId`);
+        const preview = '.preview-frame:not(.preview-frame-back)';
+        await until(() => app.evaluate(main, `!!document.querySelector(${JSON.stringify(preview)})?.srcdoc`), 'GTK history preview ready');
+        await app.evaluate(main, `document.querySelector(${JSON.stringify(preview)}).focus()`);
+        await keyboard(app, main, -1);
+        await at(app, main, id, 3, 2);
+        await app.historyMouse(main, 1, preview);
+        await at(app, main, id, 30, 3);
+    });
+
+    test('navigation history crosses tabs and split groups and skips closed tabs', {timeout: 60000}, async t => {
+        const {app, main} = await start(t);
+        const first = await app.evaluate(main, `window.calcpadTabs.newUntitled(${JSON.stringify(content)}, 'History A');
+            window.calcpadActiveEditor.setPosition({lineNumber: 30, column: 3});
+            window.calcpadTabs.activeId`);
+        const second = await app.evaluate(main, `window.calcpadTabs.newUntitled('b = 2\\nc = 3', 'History B');
+            window.calcpadActiveEditor.setPosition({lineNumber: 2, column: 3});
+            window.calcpadTabs.activeId`);
+        await keyboard(app, main, -1);
+        await at(app, main, first, 30, 3);
+        await keyboard(app, main, 1);
+        await at(app, main, second, 2, 3);
+        await app.evaluate(main, invoke('plugin:event|emit_to', {
+            target: {kind: 'WebviewWindow', label: 'main'}, event: 'menu-click', payload: {id: 'split-editor'},
+        }));
+        const linked = await until(() => app.evaluate(main,
+            `document.querySelector('[data-tab-group="g1"] [data-tab-id]')?.dataset.tabId`), 'GTK history split ready');
+        await at(app, main, linked, 1, 1);
+        await keyboard(app, main, -1);
+        await at(app, main, second, 2, 3);
+        await app.historyMouse(main, 1);
+        await at(app, main, linked, 1, 1);
+        await keyboard(app, main, -1);
+        await at(app, main, second, 2, 3);
+        await app.evaluate(main, `const id = window.calcpadTabs.newUntitled('closed = 1', 'Closed history tab');
+            window.calcpadTabs.close(id)`);
+        await at(app, main, second, 2, 3);
+        await keyboard(app, main, -1);
+        await at(app, main, first, 30, 3);
+        await keyboard(app, main, 1);
+        await at(app, main, second, 2, 3);
+    });
+
+    test('cross-file navigation records only the destination for new and existing GTK tabs', {timeout: 60000}, async t => {
+        const {app, main} = await start(t);
+        const targetContent = '\n'.repeat(24) + 'target = 42\n';
+        const target = path.join(app.profile, 'history-definitions.cpd');
+        const source = path.join(app.profile, 'history-source.cpd');
+        const sourceContent = `#include ${target}\n\nresult = target\n`;
+        writeFileSync(target, targetContent);
+        writeFileSync(source, sourceContent);
+        const sourceId = await app.evaluate(main, `window.calcpadTabs.openFile(${JSON.stringify(source)}, ${JSON.stringify(sourceContent)})`);
+        for (const existing of [false, true]) {
+            if (existing) {
+                await app.evaluate(main, `window.calcpadActiveEditor.setPosition({lineNumber: 7, column: 1});
+                    window.calcpadTabs.activate(${JSON.stringify(sourceId)})`);
+            }
+            const targetId = await app.evaluate(main, `window.calcpadActiveEditor.setPosition({lineNumber: 3, column: 11});
+                window.calcpadTabs.openFile(${JSON.stringify(target)}, ${JSON.stringify(targetContent)}, {lineNumber: 25, column: 1})`);
+            await at(app, main, targetId, 25, 1);
+            await keyboard(app, main, -1);
+            await at(app, main, sourceId, 3, 11);
+            await keyboard(app, main, 1);
+            await at(app, main, targetId, 25, 1);
+        }
+    });
+
+    test('navigation history shares selections across GTK windows and removes closed windows', {timeout: 60000}, async t => {
+        const {app, main} = await start(t);
+        const selection = {selectionStartLineNumber: 5, selectionStartColumn: 4, positionLineNumber: 6, positionColumn: 2};
+        const first = await app.evaluate(main, `window.calcpadActiveEditor.setValue(${JSON.stringify(content)});
+            window.calcpadActiveEditor.setSelection(${JSON.stringify(selection)});
+            window.calcpadTabs.activeId`);
+        const second = await app.newWindow(main);
+        const other = await app.evaluate(second.handle, `window.calcpadActiveEditor.setValue(${JSON.stringify(content)});
+            window.calcpadActiveEditor.setPosition({lineNumber: 6, column: 3});
+            window.calcpadBridge.confirmThreeWay = async () => 'no';
+            window.calcpadTabs.activeId`);
+        assert.equal(first, other, 'GTK tab IDs may match across windows');
+        await app.evaluate(main, 'window.calcpadActiveEditor.setPosition({lineNumber: 60, column: 1})');
+        await app.historyMouse(second.handle, -1);
+        await at(app, main, first, 6, 2);
+        await until(() => app.evaluate(main, 'document.hasFocus()'), 'history focuses first GTK window');
+        const restored = await app.evaluate(main, 'window.calcpadActiveEditor.getSelection()');
+        for (const [key, value] of Object.entries(selection)) assert.equal(restored[key], value);
+        assert.equal(await app.evaluate(second.handle, 'document.hasFocus()'), false);
+        await keyboard(app, main, 1);
+        await at(app, second.handle, other, 6, 3);
+        await until(() => app.evaluate(second.handle, 'document.hasFocus()'), 'history focuses second GTK window');
+        await app.evaluate(main, 'window.calcpadActiveEditor.setPosition({lineNumber: 60, column: 1})');
+        await keyboard(app, second.handle, -1);
+        await at(app, main, first, 6, 2);
+        await keyboard(app, main, 1);
+        await at(app, second.handle, other, 6, 3);
+        await app.closeWindow(second.handle);
+        app.focus(await app.nativeWindow(main));
+        await until(() => app.evaluate(main, 'document.hasFocus()'), 'remaining GTK window focused');
+        await app.evaluate(main, 'window.calcpadActiveEditor.setPosition({lineNumber: 30, column: 1})');
+        await keyboard(app, main, -1);
+        await at(app, main, first, 6, 2);
+        await keyboard(app, main, 1);
+        await at(app, main, first, 30, 1);
+    });
 
     test('reorders tabs with native pointer movement below the GTK menu', {timeout: 60000}, async t => {
         const {app, main} = await start(t);
