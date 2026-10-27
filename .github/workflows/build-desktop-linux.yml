@@ -63,6 +63,7 @@ jobs:
             xdotool \
             dbus-x11 \
             sway \
+            wtype \
             python3 \
             patchelf \
             xdg-utils \

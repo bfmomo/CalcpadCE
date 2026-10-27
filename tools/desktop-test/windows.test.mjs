@@ -75,6 +75,264 @@ describe('desktop windows', {skip: process.platform !== 'win32', concurrency: fa
         await app.stop(main, 'main');
     });
 
+    test('navigation history is shared across windows and survives closed tabs and the primary window', {timeout: 90000}, async t => {
+        const app = new TestApp();
+        t.after(() => app.dispose());
+        const main = await app.start();
+        await app.focus(main, 'main');
+        const content = Array.from({length: 80}, (_, i) => 'a' + i + ' = 1').join('\n');
+        const selection = {selectionStartLineNumber: 5, selectionStartColumn: 4, positionLineNumber: 6, positionColumn: 2};
+        const firstId = await app.evaluate(main, `window.calcpadActiveEditor.setValue(${JSON.stringify(content)});
+            window.calcpadActiveEditor.setSelection(${JSON.stringify(selection)});
+            window.calcpadBridge.confirmThreeWay = async () => 'no';
+            window.calcpadTabs.activeId`);
+        const second = await app.newWindow(main);
+        await app.focus(second.page, second.label);
+        const secondId = await app.evaluate(second.page, `window.calcpadActiveEditor.setValue(${JSON.stringify(content)});
+            window.calcpadActiveEditor.setPosition({lineNumber: 6, column: 3});
+            window.calcpadBridge.confirmThreeWay = async () => 'no';
+            window.calcpadTabs.activeId`);
+        assert.equal(firstId, secondId, 'tab IDs may be identical in different windows');
+        const focusedAt = async (page, line, column, previous) => {
+            await until(async () => {
+                const [focused, blurred] = await Promise.all([
+                    app.evaluate(page, `document.hasFocus()
+                        && window.calcpadActiveEditor.getPosition().lineNumber === ${line}
+                        && window.calcpadActiveEditor.getPosition().column === ${column}`),
+                    previous ? app.evaluate(previous, '!document.hasFocus()') : true,
+                ]);
+                return focused && blurred;
+            }, `window focused at ${line}:${column}`);
+        };
+        const navigate = async (page, key, target, line, column) => {
+            await app.cdp(page, 'Input.dispatchKeyEvent', {type: 'keyDown', key, code: key,
+                modifiers: 1, windowsVirtualKeyCode: key === 'ArrowLeft' ? 37 : 39});
+            await focusedAt(target, line, column, page === target ? null : page);
+            // CDP focuses the recipient even for release events.
+            await app.cdp(target, 'Input.dispatchKeyEvent', {type: 'keyUp', key, code: key, modifiers: 1});
+        };
+
+        await app.cdp(second.page, 'Input.dispatchMouseEvent', {type: 'mousePressed', x: 200, y: 120, button: 'back', clickCount: 1});
+        await focusedAt(main, 6, 2, second.page);
+        await app.cdp(main, 'Input.dispatchMouseEvent', {type: 'mouseReleased', x: 200, y: 120, button: 'back', clickCount: 1});
+        const restored = await app.evaluate(main, 'window.calcpadActiveEditor.getSelection()');
+        for (const [key, value] of Object.entries(selection)) assert.equal(restored[key], value);
+        await navigate(main, 'ArrowRight', second.page, 6, 3);
+        await navigate(second.page, 'ArrowLeft', main, 6, 2);
+        await app.evaluate(main, 'window.calcpadActiveEditor.setPosition({lineNumber: 8, column: 2})');
+        // The webview can lose focus before the native focus notification arrives.
+        await app.evaluate(main, `document.hasFocus = () => false;
+            window.calcpadActiveEditor.setPosition({lineNumber: 60, column: 1});
+            window.calcpadActiveEditor.setPosition({lineNumber: 8, column: 2});
+            delete document.hasFocus`);
+        await navigate(main, 'ArrowRight', second.page, 6, 3);
+        await app.evaluate(main, 'window.calcpadActiveEditor.setPosition({lineNumber: 60, column: 1})');
+        await navigate(second.page, 'ArrowLeft', main, 8, 2);
+        await navigate(main, 'ArrowRight', second.page, 6, 3);
+
+        await app.evaluate(second.page, `const id = window.calcpadTabs.newUntitled(${JSON.stringify(content)}, 'Closed history tab');
+            window.calcpadActiveEditor.setPosition({lineNumber: 9, column: 1});
+            window.calcpadTabs.close(id)`);
+        await navigate(second.page, 'ArrowLeft', main, 8, 2);
+        await navigate(main, 'ArrowRight', second.page, 6, 3);
+
+        await app.closeAndWait(main, 'main');
+        await until(() => app.evaluate(second.page, `${invoke('primary_window')} .then(label => label === ${JSON.stringify(second.label)})`), 'remaining window is primary');
+        await app.evaluate(second.page, 'window.calcpadActiveEditor.setPosition({lineNumber: 30, column: 1})');
+        await navigate(second.page, 'ArrowLeft', second.page, 6, 3);
+        await navigate(second.page, 'ArrowRight', second.page, 30, 1);
+        await app.stop(second.page, second.label);
+    });
+
+    test('cursor history merges nearby clicks and API moves while keeping explicit navigation and selections', {timeout: 90000}, async t => {
+        const app = new TestApp();
+        t.after(() => app.dispose());
+        const main = await app.start();
+        await app.setGeometry(main, {width: 1400, height: 700}, {x: 10, y: 10});
+        await app.evaluate(main, `window.calcpadTabs.newUntitled(Array.from({length: 80}, (_, i) => 'a' + i + ' = 1').join('\\n'));
+            window.calcpadActiveEditor.setPosition({lineNumber: 30, column: 1});
+            window.calcpadActiveEditor.revealLineInCenter(32)`);
+        const navigate = async key => {
+            await app.cdp(main, 'Input.dispatchKeyEvent', {type: 'keyDown', key, code: key,
+                modifiers: 1, windowsVirtualKeyCode: key === 'ArrowLeft' ? 37 : 39});
+            await app.cdp(main, 'Input.dispatchKeyEvent', {type: 'keyUp', key, code: key, modifiers: 1});
+        };
+        const line = () => app.evaluate(main, 'window.calcpadActiveEditor.getPosition().lineNumber');
+        const at = expected => until(async () => await line() === expected, `cursor history at line ${expected}`);
+        const point = await app.evaluate(main, `(() => {
+            const editor = window.calcpadActiveEditor;
+            const rect = editor.getDomNode().getBoundingClientRect();
+            const pos = editor.getScrolledVisiblePosition({lineNumber: 32, column: 3});
+            return {x: rect.left + pos.left + 1, y: rect.top + pos.top + pos.height / 2};
+        })()`);
+        for (const type of ['mousePressed', 'mouseReleased']) {
+            await app.cdp(main, 'Input.dispatchMouseEvent', {type, ...point, button: 'left', clickCount: 1});
+        }
+        await at(32);
+        await navigate('ArrowLeft');
+        await at(1);
+        await app.evaluate(main, 'window.calcpadActiveEditor.setPosition({lineNumber: 4, column: 2})');
+        await navigate('ArrowRight');
+        await at(32);
+        await app.evaluate(main, `window.calcpadActiveEditor.setPosition({lineNumber: 35, column: 2});
+            window.calcpadBridge.handleMessage({type: 'goToLine', line: 38})`);
+        await at(38);
+        await app.evaluate(main, "window.calcpadActiveEditor.setPosition({lineNumber: 38, column: 5}, 'code.jump')");
+        await navigate('ArrowLeft');
+        await at(35);
+        await navigate('ArrowRight');
+        await at(38);
+        assert.deepEqual(await app.evaluate(main, 'window.calcpadActiveEditor.getPosition()'), {lineNumber: 38, column: 5});
+
+        const selection = {selectionStartLineNumber: 38, selectionStartColumn: 5, positionLineNumber: 37, positionColumn: 2};
+        await app.evaluate(main, `window.calcpadActiveEditor.setSelection(${JSON.stringify(selection)});
+            window.calcpadActiveEditor.setPosition({lineNumber: 60, column: 1})`);
+        await navigate('ArrowLeft');
+        await at(37);
+        const restored = await app.evaluate(main, 'window.calcpadActiveEditor.getSelection()');
+        for (const [key, value] of Object.entries(selection)) assert.equal(restored[key], value);
+        await app.stop(main, 'main');
+    });
+
+    test('cross-file jumps record only the destination position', {timeout: 90000}, async t => {
+        const app = new TestApp();
+        t.after(() => app.dispose());
+        const targetContent = '\n'.repeat(24) + 'target = 42\n';
+        const included = app.fixture('history-definitions.cpd', targetContent);
+        const source = app.fixture('history-source.cpd', `#include ${included}\n\nresult = target\n`);
+        const main = await app.start([source]);
+        await app.fileOpen(main, source);
+        const state = () => app.evaluate(main, `({file: window.calcpadTabs.activeTab.filePath,
+            line: window.calcpadActiveEditor.getPosition().lineNumber,
+            column: window.calcpadActiveEditor.getPosition().column})`);
+        const jump = async () => {
+            await app.evaluate(main, `window.calcpadActiveEditor.setPosition({lineNumber: 3, column: 11});
+                window.calcpadTabs.openFile(${JSON.stringify(included)}, ${JSON.stringify(targetContent)}, {lineNumber: 25, column: 1})`);
+            await until(async () => {
+                const current = await state();
+                return current.file === included && current.line === 25;
+            }, 'included definition reached');
+        };
+        const navigate = async key => {
+            await app.cdp(main, 'Input.dispatchKeyEvent', {type: 'keyDown', key, code: key,
+                modifiers: 1, windowsVirtualKeyCode: key === 'ArrowLeft' ? 37 : 39});
+            await app.cdp(main, 'Input.dispatchKeyEvent', {type: 'keyUp', key, code: key, modifiers: 1});
+        };
+
+        await jump();
+        const destination = await state();
+        await navigate('ArrowLeft');
+        await until(async () => JSON.stringify(await state()) !== JSON.stringify(destination), 'history moved back');
+        assert.deepEqual(await state(), {file: source, line: 3, column: 11});
+        await navigate('ArrowRight');
+        await until(async () => (await state()).file === included, 'history moved forward');
+        assert.deepEqual(await state(), destination);
+
+        await app.evaluate(main, `window.calcpadActiveEditor.setPosition({lineNumber: 7, column: 1});
+            window.calcpadTabs.activate(window.calcpadTabs.findByPath(${JSON.stringify(source)}).id)`);
+        await jump();
+        await navigate('ArrowLeft');
+        await until(async () => JSON.stringify(await state()) !== JSON.stringify(destination), 'history moved back from existing tab');
+        assert.deepEqual(await state(), {file: source, line: 3, column: 11});
+        await app.stop(main, 'main');
+    });
+
+    test('navigation history restores positions across tabs and split groups with keyboard and mouse', {timeout: 90000}, async t => {
+        const app = new TestApp();
+        t.after(() => app.dispose());
+        const main = await app.start();
+        const first = await app.evaluate(main, `(() => {
+            const id = window.calcpadTabs.newUntitled(Array.from({length: 80}, (_, i) => 'a' + i + ' = 1').join('\\n'), 'History A');
+            window.calcpadActiveEditor.setPosition({lineNumber: 3, column: 2});
+            window.calcpadActiveEditor.setPosition({lineNumber: 30, column: 3});
+            return id;
+        })()`);
+        const state = () => app.evaluate(main, `({tab: window.calcpadTabs.activeId,
+            position: window.calcpadActiveEditor.getPosition()})`);
+        const keyboard = async (key, code) => {
+            await app.cdp(main, 'Input.dispatchKeyEvent', {type: 'keyDown', key, code,
+                modifiers: 1, windowsVirtualKeyCode: key === 'ArrowLeft' ? 37 : 39});
+            await app.cdp(main, 'Input.dispatchKeyEvent', {type: 'keyUp', key, code, modifiers: 1});
+        };
+        const mouse = async button => {
+            for (const type of ['mousePressed', 'mouseReleased']) {
+                await app.cdp(main, 'Input.dispatchMouseEvent', {type, x: 200, y: 120, button, clickCount: 1});
+            }
+        };
+        const at = async (tab, lineNumber, column) => {
+            await until(async () => {
+                const current = await state();
+                return current.tab === tab && current.position.lineNumber === lineNumber && current.position.column === column;
+            }, `history at ${tab}:${lineNumber}:${column}`);
+        };
+        await keyboard('ArrowLeft', 'ArrowLeft');
+        await at(first, 3, 2);
+        await mouse('forward');
+        await at(first, 30, 3);
+        await mouse('back');
+        await at(first, 3, 2);
+        await keyboard('ArrowRight', 'ArrowRight');
+        await at(first, 30, 3);
+
+        const previewInput = async expression => {
+            await until(() => app.evaluate(main, `(() => {
+                const frame = document.querySelector('.preview-frame:not(.preview-frame-back)');
+                if (!frame?.srcdoc) return null;
+                frame.focus();
+                return true;
+            })()`), 'history preview ready');
+            const {root} = await app.cdp(main, 'DOM.getDocument', {depth: -1, pierce: true});
+            const findPreview = node => {
+                if (node.nodeName === 'IFRAME' && node.attributes.includes('preview-frame')) return node.frameId;
+                for (const child of node.children ?? []) {
+                    const frameId = findPreview(child);
+                    if (frameId) return frameId;
+                }
+            };
+            const previewFrame = findPreview(root);
+            assert.ok(previewFrame, 'front preview frame found');
+            const {executionContextId} = await app.cdp(main, 'Page.createIsolatedWorld', {frameId: previewFrame, worldName: 'history-test'});
+            const result = await app.cdp(main, 'Runtime.evaluate', {contextId: executionContextId, expression});
+            assert.equal(result.exceptionDetails, undefined);
+        };
+        await previewInput(`document.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowLeft', code: 'ArrowLeft', altKey: true, cancelable: true}))`);
+        await at(first, 3, 2);
+        const previewPoint = await app.evaluate(main, `(() => {
+            const rect = document.querySelector('.preview-frame:not(.preview-frame-back)').getBoundingClientRect();
+            return {x: rect.left + rect.width / 2, y: rect.top + rect.height / 2};
+        })()`);
+        for (const type of ['mousePressed', 'mouseReleased']) {
+            await app.cdp(main, 'Input.dispatchMouseEvent', {type, ...previewPoint, button: 'forward', clickCount: 1});
+        }
+        await at(first, 30, 3);
+        await keyboard('ArrowLeft', 'ArrowLeft');
+        await at(first, 3, 2);
+        await previewInput(`['mousedown', 'mouseup', 'auxclick'].forEach(type => document.dispatchEvent(new MouseEvent(type, {button: 4, cancelable: true})))`);
+        await at(first, 30, 3);
+
+        const second = await app.evaluate(main, `(() => {
+            const id = window.calcpadTabs.newUntitled('b = 2\\nc = 3', 'History B');
+            window.calcpadActiveEditor.setPosition({lineNumber: 2, column: 3});
+            return id;
+        })()`);
+        await keyboard('ArrowLeft', 'ArrowLeft');
+        await at(first, 30, 3);
+        await keyboard('ArrowRight', 'ArrowRight');
+        await at(second, 2, 3);
+        await app.evaluate(main, invoke('plugin:event|emit_to', {
+            target: {kind: 'WebviewWindow', label: 'main'}, event: 'menu-click', payload: {id: 'split-editor'},
+        }));
+        const linked = await until(() => app.evaluate(main,
+            `document.querySelector('[data-tab-group="g1"] [data-tab-id]')?.dataset.tabId`), 'split history group ready');
+        await until(async () => (await state()).tab === linked, 'split group active');
+        await keyboard('ArrowLeft', 'ArrowLeft');
+        await at(second, 2, 3);
+        await keyboard('ArrowRight', 'ArrowRight');
+        await until(async () => (await state()).tab === linked, 'history returned to split group');
+        await app.evaluate(main, "window.calcpadBridge.confirmThreeWay = async () => 'no'");
+        await app.stop(main, 'main');
+    });
+
     test('document tabs reorder without losing undo history and cancelled drags leave them in place', {timeout: 90000}, async t => {
         const app = new TestApp();
         t.after(() => app.dispose());

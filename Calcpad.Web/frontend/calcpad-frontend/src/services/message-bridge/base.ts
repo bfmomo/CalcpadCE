@@ -1046,7 +1046,7 @@ export abstract class BaseMessageBridge {
         const editor = this.getActiveMonacoEditor();
         if (editor) {
             editor.revealLineInCenter(line);
-            editor.setPosition({ lineNumber: line, column: 1 });
+            editor.setPosition({ lineNumber: line, column: 1 }, 'code.navigation');
             editor.focus();
         }
     }
@@ -1280,7 +1280,7 @@ interface MonacoEditorLike {
     getModel(): MonacoModelLike | null;
     getPosition(): { lineNumber: number; column: number } | null;
     revealLineInCenter(line: number): void;
-    setPosition(pos: { lineNumber: number; column: number }): void;
+    setPosition(pos: { lineNumber: number; column: number }, source?: string): void;
     executeEdits(source: string, edits: { range: MonacoRangeLike; text: string }[]): void;
     focus(): void;
 }

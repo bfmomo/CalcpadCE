@@ -610,6 +610,7 @@ import {
   type DisplayLogLevel,
 } from 'calcpad-frontend'
 import type { ResultMode, WorkspaceLayout } from './services/workspace-state'
+import { navigationDirection } from './editor/navigation-history'
 
 const props = withDefaults(defineProps<{ isDesktop?: boolean }>(), { isDesktop: false })
 const draggedFileNames = ref<string[]>([])
@@ -1370,11 +1371,18 @@ function onPreviewWindowMessage(e: MessageEvent): void {
     if (!(focused instanceof HTMLIFrameElement) || focused.contentWindow !== e.source) return
     window.dispatchEvent(new KeyboardEvent('keydown', {
       key: String(data.key ?? ''),
+      code: String(data.code ?? ''),
       ctrlKey: data.ctrlKey === true,
       shiftKey: data.shiftKey === true,
       altKey: data.altKey === true,
+      metaKey: data.metaKey === true,
       cancelable: true,
     }))
+    return
+  }
+  if (data.type === 'previewHistoryMouse') {
+    if (data.button !== 3 && data.button !== 4) return
+    window.dispatchEvent(new MouseEvent('mousedown', { button: data.button, cancelable: true }))
     return
   }
   if (data.type === 'previewClipboardAction') {
@@ -2006,6 +2014,21 @@ function injectPreviewAgent(
     '  if (window.__calcpadAgentReady) return;',
     '  window.__calcpadAgentReady = true;',
     "  var send = function(msg) { msg.frameId = FRAME_ID; try { window.parent.postMessage(msg, '*'); } catch (_e) {} };",
+    '  var navigationDirection = ' + navigationDirection.toString() + ';',
+    "  document.addEventListener('keydown', function(e) {",
+    '    if (!navigationDirection(e, navigator.platform)) return;',
+    '    e.preventDefault();',
+    '    e.stopImmediatePropagation();',
+    "    send({ type: 'previewShortcut', key: e.key, code: e.code, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey });",
+    '  }, true);',
+    "  ['mousedown', 'mouseup', 'auxclick'].forEach(function(type) {",
+    '    document.addEventListener(type, function(e) {',
+    '      if (e.button !== 3 && e.button !== 4) return;',
+    '      e.preventDefault();',
+    '      e.stopImmediatePropagation();',
+    "      if (type === 'mousedown') send({ type: 'previewHistoryMouse', button: e.button });",
+    '    }, true);',
+    '  });',
     '',
     // ---- focus probes ----
     // A datagrid keeps its position in the library, so its own inputs take the sheet path.
