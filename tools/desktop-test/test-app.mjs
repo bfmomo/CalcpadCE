@@ -9,8 +9,8 @@ export const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 export const invoke = (command, args = {}) =>
     `window.__TAURI_INTERNALS__.invoke(${JSON.stringify(command)}, ${JSON.stringify(args)})`;
 
-export async function until(check, description) {
-    const deadline = Date.now() + 20000;
+export async function until(check, description, timeoutMs = 20000) {
+    const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
         const result = await check();
         if (result) return result;
@@ -35,6 +35,7 @@ export class TestApp {
     desktop = process.env.CALCPAD_TEST_DESKTOP ?? 'CalcpadWindowTests';
     runner = null;
     launches = 0;
+    windowStates = [];
 
     constructor() {
         if (path.dirname(this.profile) !== path.resolve(process.env.APPDATA)
@@ -46,6 +47,8 @@ export class TestApp {
     }
 
     async start(args = []) {
+        const deadline = Date.now() + 60000;
+        this.windowStates = [];
         this.port = await unusedPort();
         this.endpoint = `http://127.0.0.1:${this.port}`;
         this.runner = this.launch(args);
@@ -57,14 +60,14 @@ export class TestApp {
                 }
                 try { return (await fetch(`${this.endpoint}/json`)).ok; }
                 catch { return false; }
-            }, 'debug port');
+            }, 'debug port', deadline - Date.now());
+            const main = await this.window('main', deadline - Date.now());
+            await pause(300);
+            return main;
         } catch (error) {
             const log = path.join(this.directory, `launch-${this.launches - 1}.log`);
-            throw new Error(`${error.message}\n${log}\n${existsSync(log) ? readFileSync(log, 'utf8') : 'No application log was created.'}`, {cause: error});
+            throw new Error(`${error.message}\nLast window states: ${JSON.stringify(this.windowStates)}\n${log}\n${existsSync(log) ? readFileSync(log, 'utf8') : 'No application log was created.'}`, {cause: error});
         }
-        const main = await this.window('main');
-        await pause(300);
-        return main;
     }
 
     launch(args) {
@@ -132,19 +135,22 @@ export class TestApp {
     async windows() {
         const pages = (await (await fetch(`${this.endpoint}/json`)).json()).filter(page => page.type === 'page');
         const result = new Map();
+        this.windowStates = [];
         for (const page of pages) {
             // A page that is still loading or closing may never answer; treat it as not ready.
             const state = await this.evaluate(page,
                 `({label: window.__TAURI_INTERNALS__?.metadata.currentWindow.label,
-                    ready: !!window.calcpadTabs && !!document.querySelector('.tab-drop-marker')})`, 3000)
-                .catch(() => null);
-            if (state?.ready) result.set(state.label, page);
+                    ready: !!window.calcpadTabs && !!document.querySelector('.tab-drop-marker'),
+                    documentState: document.readyState, text: window.calcpadTabs ? undefined : document.body?.innerText.slice(0, 2000)})`, 3000)
+                .catch(error => ({ready: false, error: error.message}));
+            this.windowStates.push({url: page.url, ...state});
+            if (state.ready) result.set(state.label, page);
         }
         return result;
     }
 
-    window(label) {
-        return until(async () => (await this.windows()).get(label), `${label} ready`);
+    window(label, timeoutMs) {
+        return until(async () => (await this.windows()).get(label), `${label} ready`, timeoutMs);
     }
 
     async newWindow(page) {
