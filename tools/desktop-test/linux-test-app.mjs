@@ -160,7 +160,7 @@ export class LinuxTestApp {
             await this.pointerCommand({type: 'move', x: Math.round(x), y: Math.round(y),
                 width: output.rect.width, height: output.rect.height});
         } else {
-            this.xdotool('mousemove', '--sync', x, y);
+            this.xdotool('mousemove', x, y);
         }
     }
 
@@ -197,6 +197,22 @@ export class LinuxTestApp {
     focus(native) {
         if (this.isWayland) this.sway(`[con_id=${native}] focus`);
         else this.xdotool('windowactivate', '--sync', native);
+    }
+
+    async fileDialog(title) {
+        return until(() => {
+            if (this.isWayland) return this.swayWindow(node => node.name === title)?.id;
+            try { return this.xdotool('search', '--onlyvisible', '--name', `^${title}$`).split('\n')[0]; }
+            catch { return null; }
+        }, `${title} dialog visible`);
+    }
+
+    closeFileDialog(native) {
+        if (this.isWayland) this.sway(`[con_id=${native}] kill`);
+        else {
+            this.focus(native);
+            this.xdotool('key', 'Escape');
+        }
     }
 
     async geometry(handle, x, y, width = 1100, height = 750) {

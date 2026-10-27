@@ -1,8 +1,8 @@
 <template>
-  <header class="desktop-titlebar" data-tauri-drag-region @contextmenu.prevent>
-    <div class="titlebar-leading">
+  <header class="desktop-titlebar" :style="{ '--titlebar-leading-width': leadingWidth + 'px' }" data-tauri-drag-region @contextmenu.prevent>
+    <div ref="leading" class="titlebar-leading">
       <img class="titlebar-logo" :src="CALCPAD_ICON_URL" alt="CalcpadCE" />
-      <button class="titlebar-button" title="File menu (Alt+M)" aria-label="File menu" aria-haspopup="menu" :aria-expanded="menuOpen" @mousedown.left.prevent="showMenu" @click="onMenuClick">
+      <button ref="fileButton" class="titlebar-button" title="File menu (Alt+M)" aria-label="File menu" aria-haspopup="menu" :aria-expanded="menuOpen" @mousedown.left="onMenuMouseDown" @click="onMenuClick">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
         <span>File</span>
       </button>
@@ -27,31 +27,62 @@
       <span data-tauri-drag-region>{{ title }}</span>
     </div>
     <div class="titlebar-window-controls">
-      <button class="titlebar-button" title="Minimize" aria-label="Minimize" @click="desktopWindow.minimize()">
+      <button class="titlebar-button" aria-label="Minimize" @click="desktopWindow.minimize()">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5h10"/></svg>
       </button>
-      <button class="titlebar-button" :title="maximized ? 'Restore' : 'Maximize'" :aria-label="maximized ? 'Restore' : 'Maximize'" @click="desktopWindow.toggleMaximize()">
+      <button class="titlebar-button" :aria-label="maximized ? 'Restore' : 'Maximize'" @click="desktopWindow.toggleMaximize()">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path :d="maximized ? 'M5.5 5.5h7v7h-7zM3.5 10V3.5H10' : 'M3.5 3.5h9v9h-9z'"/></svg>
       </button>
-      <button class="titlebar-button titlebar-close" title="Close window" aria-label="Close window" @click="desktopWindow.close()">
+      <button class="titlebar-button titlebar-close" aria-label="Close window" @click="desktopWindow.close()">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 3.5 9 9m0-9-9 9"/></svg>
       </button>
     </div>
   </header>
+  <div v-if="linux && menuOpen" ref="fileMenu" class="tab-context-menu desktop-file-menu" :style="{ left: menuLeft + 'px' }" role="menu" aria-label="File" @mousedown.stop @keydown="onMenuKeyDown">
+    <template v-for="entry in menuEntries" :key="entry.id">
+      <div v-if="!entry.text" class="tab-context-sep" role="separator"></div>
+      <details v-else-if="entry.children.length" class="recent-menu">
+        <summary role="menuitem" aria-haspopup="menu">{{ entry.text }}<span aria-hidden="true">›</span></summary>
+        <div role="menu">
+          <template v-for="child in entry.children" :key="child.id">
+            <div v-if="!child.text" class="tab-context-sep" role="separator"></div>
+            <button v-else class="context-menu" role="menuitem" :disabled="!child.enabled" :title="child.text" @click="runMenuCommand(child.id)">{{ child.text }}</button>
+          </template>
+        </div>
+      </details>
+      <button v-else class="context-menu" role="menuitem" :disabled="!entry.enabled" @click="runMenuCommand(entry.id)">
+        <span>{{ entry.text }}</span><span class="menu-shortcut">{{ shortcuts[entry.id] }}</span>
+      </button>
+    </template>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { platform } from '@tauri-apps/plugin-os'
 import { CALCPAD_ICON_URL } from 'calcpad-frontend/vue/calcpad-icon'
 
 defineProps<{ title: string; canSave: boolean }>()
-defineEmits<{ command: [id: string] }>()
+const emit = defineEmits<{ command: [id: string] }>()
 
 const desktopWindow = getCurrentWindow()
 const maximized = ref(false)
 const menuOpen = ref(false)
+const linux = platform() === 'linux'
+const fileButton = ref<HTMLButtonElement>()
+const fileMenu = ref<HTMLElement>()
+const menuLeft = ref(0)
+const leading = ref<HTMLElement>()
+const leadingWidth = ref(0)
+const leadingObserver = new ResizeObserver(([entry]) => { leadingWidth.value = entry.borderBoxSize[0].inlineSize })
+interface MenuEntry { id: string; text: string; enabled: boolean; children: MenuEntry[] }
+const menuEntries = ref<MenuEntry[]>([])
+const shortcuts: Record<string, string> = {
+  new: 'Ctrl+N', 'new-window': 'Ctrl+Alt+W', open: 'Ctrl+O',
+  save: 'Ctrl+S', 'save-as': 'Ctrl+Shift+S', 'close-tab': 'Ctrl+W',
+}
 const actions = [
   { id: 'save', label: 'Save document', title: 'Save document (Ctrl+S)', path: 'M1 1h11l3 3v11H1zM4 1v5h7V1M4 15V9h8v6' },
   { id: 'open', label: 'Open document', title: 'Open document (Ctrl+O)', path: 'M1 7V2h5l2 2h7v11H1zM1 7h14' },
@@ -61,6 +92,15 @@ const actions = [
 let unlistenResize: (() => void) | undefined
 
 async function showMenu(): Promise<void> {
+  if (linux) {
+    if (menuOpen.value) { closeMenu(); return }
+    menuLeft.value = fileButton.value!.getBoundingClientRect().left
+    menuEntries.value = await invoke<MenuEntry[]>('get_app_menu')
+    menuOpen.value = true
+    await nextTick()
+    fileMenu.value!.querySelector<HTMLElement>('button:not(:disabled), summary')!.focus()
+    return
+  }
   if (menuOpen.value) return
   const button = document.querySelector('[aria-label="File menu"]')!.getBoundingClientRect()
   menuOpen.value = true
@@ -71,8 +111,50 @@ async function showMenu(): Promise<void> {
   }
 }
 
+function onMenuMouseDown(event: MouseEvent): void {
+  if (!linux) { event.preventDefault(); void showMenu() }
+}
+
 function onMenuClick(event: MouseEvent): void {
-  if (event.detail === 0) void showMenu()
+  if (linux || event.detail === 0) void showMenu()
+}
+
+function closeMenu(): void {
+  menuOpen.value = false
+}
+
+function runMenuCommand(id: string): void {
+  closeMenu()
+  emit('command', id)
+}
+
+function onOutsidePointerDown(event: PointerEvent): void {
+  if (linux && !fileButton.value!.contains(event.target as Node) && !fileMenu.value?.contains(event.target as Node)) closeMenu()
+}
+
+function onMenuKeyDown(event: KeyboardEvent): void {
+  const current = document.activeElement as HTMLElement
+  const recent = current.closest('details')
+  if (event.key === 'Escape' || event.key === 'Tab') {
+    closeMenu()
+    fileButton.value!.focus()
+    if (event.key === 'Escape') event.preventDefault()
+  } else if (event.key === 'ArrowRight' && current.tagName === 'SUMMARY') {
+    recent!.open = true
+    recent!.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
+    event.preventDefault()
+  } else if (event.key === 'ArrowLeft' && recent) {
+    recent.open = false
+    recent.querySelector('summary')!.focus()
+    event.preventDefault()
+  } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+    const items = [...fileMenu.value!.querySelectorAll<HTMLElement>('button:not(:disabled), summary')].filter(item => item.checkVisibility())
+    const index = items.indexOf(current)
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+      : (index + (event.key === 'ArrowUp' ? -1 : 1) + items.length) % items.length
+    items[next].focus()
+    event.preventDefault()
+  }
 }
 
 function onKeyDown(event: KeyboardEvent): void {
@@ -83,24 +165,69 @@ function onKeyDown(event: KeyboardEvent): void {
 }
 
 onMounted(async () => {
+  leadingWidth.value = leading.value!.offsetWidth
+  leadingObserver.observe(leading.value!)
   maximized.value = await desktopWindow.isMaximized()
   unlistenResize = await desktopWindow.onResized(async () => {
     maximized.value = await desktopWindow.isMaximized()
   })
   window.addEventListener('keydown', onKeyDown)
+  if (linux) {
+    document.addEventListener('pointerdown', onOutsidePointerDown, true)
+    window.addEventListener('blur', closeMenu)
+  }
 })
 
 onBeforeUnmount(() => {
+  leadingObserver.disconnect()
   unlistenResize?.()
   window.removeEventListener('keydown', onKeyDown)
+  document.removeEventListener('pointerdown', onOutsidePointerDown, true)
+  window.removeEventListener('blur', closeMenu)
 })
 </script>
 
 <style scoped>
+.desktop-file-menu {
+  top: 36px;
+  min-width: 240px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 44px);
+  overflow-y: auto;
+  z-index: 10001;
+  font-size: var(--vscode-font-size);
+}
+.desktop-file-menu button,
+.desktop-file-menu summary {
+  cursor: default;
+  white-space: nowrap;
+}
+.desktop-file-menu button {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.desktop-file-menu summary {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 14px;
+  list-style: none;
+}
+.desktop-file-menu summary::-webkit-details-marker { display: none; }
+.desktop-file-menu summary:hover,
+.desktop-file-menu [role="menuitem"]:focus-visible {
+  background: var(--vscode-list-hoverBackground);
+  outline: none;
+}
+.recent-menu > div { padding-left: 12px; }
+.menu-shortcut {
+  margin-left: auto;
+  padding-left: 24px;
+  opacity: 0.7;
+}
 .desktop-titlebar {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(max-content, 1fr);
+  grid-template-columns: minmax(var(--titlebar-leading-width), 1fr) minmax(0, auto) minmax(var(--titlebar-leading-width), 1fr);
   flex: 0 0 36px;
   height: 36px;
   min-height: 36px;

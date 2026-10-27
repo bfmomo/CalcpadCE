@@ -1490,7 +1490,10 @@ async function bootstrap(): Promise<void> {
         appInstance.appendOutput('error', `Uncaught: ${e.message} (${e.filename}:${e.lineno})`);
     });
     window.addEventListener('unhandledrejection', (e) => {
-        if (isCancellation(e.reason)) return;
+        if (isCancellation(e.reason)) {
+            e.preventDefault();
+            return;
+        }
         appInstance.appendOutput('error', `Unhandled rejection: ${describeError(e.reason)}`);
     });
 

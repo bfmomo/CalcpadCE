@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
-use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{IsMenuItem, Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu};
 use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
@@ -21,6 +21,8 @@ use navigation_history::{
     complete_navigation, navigate_history, record_navigation, remove_navigation,
     NavigationHistoryState,
 };
+#[cfg(target_os = "linux")]
+mod linux_file_dialog;
 
 // Populated at setup(); read from the panic hook (which has no AppHandle).
 static CRASH_DIR: OnceLock<PathBuf> = OnceLock::new();
@@ -542,6 +544,46 @@ fn show_app_menu(window: tauri::WebviewWindow, x: f64, y: f64) -> Result<(), Str
             tauri::LogicalPosition::new(x, y),
         )
         .map_err(|e| e.to_string())
+}
+
+#[derive(Serialize)]
+struct AppMenuEntry {
+    id: String,
+    text: String,
+    enabled: bool,
+    children: Vec<AppMenuEntry>,
+}
+
+fn app_menu_entries(items: Vec<MenuItemKind<tauri::Wry>>) -> tauri::Result<Vec<AppMenuEntry>> {
+    items
+        .into_iter()
+        .map(|item| {
+            let id = item.id().0.clone();
+            let (text, enabled, children) = match item {
+                MenuItemKind::MenuItem(item) => (item.text()?, item.is_enabled()?, vec![]),
+                MenuItemKind::Submenu(item) => (
+                    item.text()?,
+                    item.is_enabled()?,
+                    app_menu_entries(item.items()?)?,
+                ),
+                MenuItemKind::Predefined(_) => (String::new(), false, vec![]),
+                MenuItemKind::Check(item) => (item.text()?, item.is_enabled()?, vec![]),
+                MenuItemKind::Icon(item) => (item.text()?, item.is_enabled()?, vec![]),
+            };
+            Ok(AppMenuEntry {
+                id,
+                text,
+                enabled,
+                children,
+            })
+        })
+        .collect()
+}
+
+#[tauri::command]
+fn get_app_menu(window: tauri::WebviewWindow) -> Result<Vec<AppMenuEntry>, String> {
+    let menu = window.menu().expect("window menu exists");
+    app_menu_entries(menu.items().map_err(|e| e.to_string())?).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1647,7 +1689,10 @@ pub fn run() {
             navigate_history,
             complete_navigation,
             show_app_menu,
+            get_app_menu,
             create_export_path,
+            #[cfg(target_os = "linux")]
+            linux_file_dialog::linux_file_dialog,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {

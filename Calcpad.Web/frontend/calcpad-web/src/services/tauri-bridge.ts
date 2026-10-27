@@ -12,7 +12,8 @@ import {
     mkdir,
     exists,
 } from '@tauri-apps/plugin-fs';
-import { open as dialogOpen, save as dialogSave, message as dialogMessage, ask as dialogAsk } from '@tauri-apps/plugin-dialog';
+import { message as dialogMessage, ask as dialogAsk } from '@tauri-apps/plugin-dialog';
+import { open as dialogOpen, save as dialogSave } from './file-dialog';
 import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { Store } from '@tauri-apps/plugin-store';
 import { platform } from '@tauri-apps/plugin-os';
@@ -966,7 +967,14 @@ export class TauriMessageBridge extends BaseMessageBridge {
 
         let accepted = false;
         try {
-            accepted = await dialogAsk(question, {
+            accepted = this._platform === 'linux' ? await this.quickPick!({
+                title: 'Chromium browser required for PDF export',
+                placeholder: question,
+                options: [
+                    { label: 'Download Chromium', value: true },
+                    { label: 'Not now', value: false },
+                ],
+            }) === true : await dialogAsk(question, {
                 title: 'Chromium browser required for PDF export',
                 kind: 'warning',
                 okLabel: 'Download Chromium',
