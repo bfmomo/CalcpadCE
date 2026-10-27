@@ -2,7 +2,7 @@
   <header class="desktop-titlebar" data-tauri-drag-region @contextmenu.prevent>
     <div class="titlebar-leading">
       <img class="titlebar-logo" :src="CALCPAD_ICON_URL" alt="CalcpadCE" />
-      <button class="titlebar-button" title="File menu (Alt+M)" aria-label="File menu" aria-haspopup="menu" @click="showMenu">
+      <button class="titlebar-button" title="File menu (Alt+M)" aria-label="File menu" aria-haspopup="menu" :aria-expanded="menuOpen" @mousedown.left.prevent="showMenu" @click="onMenuClick">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
         <span>File</span>
       </button>
@@ -51,6 +51,7 @@ defineEmits<{ command: [id: string] }>()
 
 const desktopWindow = getCurrentWindow()
 const maximized = ref(false)
+const menuOpen = ref(false)
 const actions = [
   { id: 'save', label: 'Save document', title: 'Save document (Ctrl+S)', path: 'M1 1h11l3 3v11H1zM4 1v5h7V1M4 15V9h8v6' },
   { id: 'open', label: 'Open document', title: 'Open document (Ctrl+O)', path: 'M1 7V2h5l2 2h7v11H1zM1 7h14' },
@@ -60,8 +61,18 @@ const actions = [
 let unlistenResize: (() => void) | undefined
 
 async function showMenu(): Promise<void> {
+  if (menuOpen.value) return
   const button = document.querySelector('[aria-label="File menu"]')!.getBoundingClientRect()
-  await invoke('show_app_menu', { x: button.left, y: button.bottom })
+  menuOpen.value = true
+  try {
+    await invoke('show_app_menu', { x: button.left, y: button.bottom })
+  } finally {
+    menuOpen.value = false
+  }
+}
+
+function onMenuClick(event: MouseEvent): void {
+  if (event.detail === 0) void showMenu()
 }
 
 function onKeyDown(event: KeyboardEvent): void {
@@ -189,7 +200,10 @@ onBeforeUnmount(() => {
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: -3px;
 }
-.titlebar-close:hover {
+.titlebar-close {
+  border-radius: 0;
+}
+.titlebar-close:hover:not(:disabled) {
   background: #c42b1c;
   color: white;
 }

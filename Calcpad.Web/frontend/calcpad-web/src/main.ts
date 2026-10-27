@@ -912,11 +912,11 @@ async function bootstrap(): Promise<void> {
 
     function refreshWindowTitle(): void {
         const active = activeGroup?.tabs.activeTab;
-        const title = active?.title
+        const title = active?.filePath
             ? `${active.title} – CalcpadCE ${appVersion}`
-            : `CalcpadCE ${appVersion}`;
+            : `CalcpadCE – ${appVersion}`;
         document.title = title;
-        appInstance.setWindowTitle(active?.title ?? 'CalcpadCE');
+        appInstance.setWindowTitle(active?.filePath ? active.title : title);
         setNativeTitle?.(title);
     }
 
