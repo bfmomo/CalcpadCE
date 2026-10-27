@@ -71,6 +71,28 @@ namespace Calcpad.Cli
 
         static void Main()
         {
+            try
+            {
+                Run();
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine("\n" + Messages.Error + ": " + ex.Message);
+                    Console.ResetColor();
+                    Console.WriteLine(Messages.PressAnyKeyToContinue);
+                    Console.ReadKey();
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        static void Run()
+        {
             Thread.CurrentThread.CurrentUICulture = new CultureInfo(_currentCultureName);
             try
             {
@@ -111,6 +133,11 @@ namespace Calcpad.Cli
                 Console.Write(LineNo);
                 Console.ResetColor();
                 var s = Console.ReadLine();
+                if (s is null)
+                {
+                    Console.WriteLine();
+                    return;
+                }
                 if (s.Length == 0)
                 {
                     Header(Title, settings.Math.Degrees);
@@ -164,6 +191,7 @@ namespace Calcpad.Cli
                         case "GRA":
                             settings.Math.Degrees = sCaps == "DEG" ? 0 : sCaps == "RAD" ? 1 : 2;
                             mp.Degrees = settings.Math.Degrees;
+                            SaveSettings(settings);
                             Header(Title, settings.Math.Degrees);
                             Render(mp, Lines, true);
                             break;
@@ -267,6 +295,25 @@ namespace Calcpad.Cli
                 fileStream?.Close();
             }
             return settings;
+        }
+
+        internal static void SaveSettings(Settings settings)
+        {
+            try
+            {
+                var path = GetSettingsFilePath();
+                var dir = GetSettingsDirectoryPath();
+                if (!Directory.Exists(dir))
+                    Directory.CreateDirectory(dir);
+
+                XmlSerializer writer = new(settings.GetType());
+                using FileStream file = File.Create(path);
+                writer.Serialize(file, settings);
+            }
+            catch (Exception ex)
+            {
+                WriteError(ex.Message, true);
+            }
         }
 
         private static void TryRestoreSettings(Settings settings, XmlSerializer writer, string path)
@@ -452,7 +499,7 @@ namespace Calcpad.Cli
 
         static void Header(string Title, int drg)
         {
-            Console.Clear();
+            try { Console.Clear(); } catch { }
             var ver = Assembly.GetExecutingAssembly()
                 .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()
                 ?.InformationalVersion ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "";
