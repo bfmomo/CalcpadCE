@@ -82,8 +82,11 @@ namespace Calcpad.Cli
                     Console.ForegroundColor = ConsoleColor.Red;
                     Console.WriteLine("\n" + Messages.Error + ": " + ex.Message);
                     Console.ResetColor();
-                    Console.WriteLine(Messages.PressAnyKeyToContinue);
-                    Console.ReadKey();
+                    if (!Console.IsInputRedirected)
+                    {
+                        Console.WriteLine(Messages.PressAnyKeyToContinue);
+                        Console.ReadKey();
+                    }
                 }
                 catch
                 {
@@ -463,6 +466,9 @@ namespace Calcpad.Cli
         private static ConsoleKeyInfo WriteErrorAndWait(string message, string prompt = null)
         {
             WriteError(message, true);
+            if (Console.IsInputRedirected)
+                return default;
+
             prompt ??= Messages.PressAnyKeyToContinue;
             Console.WriteLine(prompt);
             return Console.ReadKey();
