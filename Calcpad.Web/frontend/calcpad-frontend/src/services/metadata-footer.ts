@@ -7,16 +7,15 @@ import {
 } from '../text/metadata-comment';
 
 /**
- * Document-level metadata lives at the end of the file: an anchor line the editors fold on,
- * a `uiOverrides` comment, then a `fileInfo` comment as the last non-blank line.
+ * Document-level metadata lives at the end of the file: an anchor line, a `uiOverrides`
+ * comment, then a `fileInfo` comment as the last non-blank line.
  */
 export const FILE_INFO_KEY = 'fileInfo';
 export const UI_OVERRIDES_KEY = 'uiOverrides';
 export const METADATA_ANCHOR = "'<!--CalcpadCE Metadata-->";
 
-/** Placeholder over the folded footer, and over a one-line footer, which can't fold. */
-export const METADATA_FOLDED_TEXT = 'expand to show file metadata';
-export const METADATA_LINE_TEXT = 'file metadata (edit in the Properties tab)';
+/** Placeholder over the hidden footer where an editor can't remove the lines. */
+export const METADATA_HIDDEN_TEXT = '⋯ file metadata hidden (see Properties tab)';
 
 /** Replace lines `line..endLine` with {@link lines}, or insert them above `line` when `isNew`. */
 export interface LineEdit {
@@ -108,8 +107,8 @@ export function findMetadataFooterSpan(lineAt: (index: number) => string, lineCo
     return first && last ? { start: (anchor ?? first.line) + start, end: last.endLine + start } : null;
 }
 
-/** The lines the editors fold: from the anchor (or first footer comment) through the end of the document. */
-export function findMetadataFoldSpan(lineAt: (index: number) => string, lineCount: number): { start: number; end: number } | null {
+/** The lines the editors hide: from the anchor (or first footer comment) through the end of the document. */
+export function findMetadataHiddenSpan(lineAt: (index: number) => string, lineCount: number): { start: number; end: number } | null {
     const span = findMetadataFooterSpan(lineAt, lineCount);
     return span ? { start: span.start, end: lineCount - 1 } : null;
 }
@@ -198,7 +197,7 @@ export function planMetadataFooter(lines: string[], changes: FooterChanges = {})
 
 /**
  * The edit turning {@link current} (starting at line {@link offset}) into {@link next}, touching only
- * the lines between their common start and end, so an unchanged anchor keeps the fold built on it.
+ * the lines between their common start and end.
  */
 function minimalEdit(current: string[], next: string[], offset: number): LineEdit | null {
     let head = 0;

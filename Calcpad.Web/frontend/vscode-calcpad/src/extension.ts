@@ -2300,7 +2300,9 @@ export async function activate(context: vscode.ExtensionContext) {
         await vscode.commands.executeCommand('workbench.action.files.save');
         return !compiledEditor.isDirty(uri);
     };
-    context.subscriptions.push(new MetadataFooterView());
+    const metadataFooterView = new MetadataFooterView(() => CalcpadSettingsManager.getInstance().getExtraBool('showFileMetadata', false));
+    vueUiProvider.onShowFileMetadataChanged = () => metadataFooterView.refresh();
+    context.subscriptions.push(metadataFooterView);
     const vueUiProviderDisposable = vscode.window.registerWebviewViewProvider(
         CalcpadVueUIProvider.viewType,
         vueUiProvider
