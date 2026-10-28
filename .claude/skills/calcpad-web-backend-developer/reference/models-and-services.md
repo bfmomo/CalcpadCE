@@ -76,6 +76,8 @@ public string GetSampleContent();
 
 Errors are returned, not thrown — the controller serializes them into the `X-Calcpad-Errors` response header and still returns the HTML.
 
+`StripHostMetadata` removes the metadata footer comments from the HTML.
+
 ### CalcpadApiService (Static)
 Shared configuration for the web application:
 ```csharp

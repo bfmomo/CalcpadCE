@@ -308,9 +308,10 @@ There is limited customization available using the datagrid properties, and more
 
 ## Saving what was entered
 
-Saving input values writes them into a metadata comment at the top of the document, which is what restores them the next time you open it:
+Saving input values writes them into a metadata comment at the end of the document, which is what restores them the next time you open it:
 
 ```text
+'<!--CalcpadCE Metadata-->
 '<!--{"uiOverrides":{"L:1":"8","q:1":"30"}}-->
 ```
 
@@ -320,7 +321,7 @@ Hand-writing an entry in the uiOverrides data works too, and the Properties tab 
 This is useful if you changed the CalcpadCE file after applying inputs and need to re-map renamed variables or want to remove deleted entries.
 
 See [Metadata Comments](new-metadata-comments.md) for the comment format itself.
-The comment has to be the **first line of the file** to take effect.
+The comment has to be in the [metadata footer](new-metadata-comments.md#file-metadata-footer) at the **end of the file** to take effect.
 See [`#UI` overrides and includes](new-includes.md#ui-overrides-and-includes) for more information.
 
 Values do not have to be saved to be exported: an export made while the form is filled in uses what is currently entered.
