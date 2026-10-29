@@ -430,14 +430,14 @@ describe('desktop windows', {skip: process.platform !== 'win32', concurrency: fa
     test('dropping a tab onto a different open version preserves both documents', {timeout: 90000}, async t => {
         const app = new TestApp();
         t.after(() => app.dispose());
-        const main = await app.start();
-        const second = await app.newWindow(main);
         const file = app.fixture('conflicting worksheet.cpd', 'saved = 1');
-        for (const [page, label] of [[main, 'main'], [second.page, second.label]]) {
-            await app.focus(page, label);
-            await app.relaunch([file]);
-            await app.fileOpen(page, file);
-        }
+        const main = await app.start([file]);
+        await app.fileOpen(main, file);
+        const second = await app.newWindow(main);
+        await app.evaluate(second.page, `window.dispatchEvent(new CustomEvent('calcpad-open-file', {
+            detail: {path: ${JSON.stringify(file)}}
+        }))`);
+        await app.fileOpen(second.page, file);
         await app.evaluate(main, "window.calcpadActiveEditor.setValue('source = 2')");
         await app.evaluate(second.page, "window.calcpadActiveEditor.setValue('destination = 3')");
         const tabId = await app.evaluate(main, 'window.calcpadTabs.activeId');
@@ -445,6 +445,12 @@ describe('desktop windows', {skip: process.platform !== 'win32', concurrency: fa
         await until(() => app.evaluate(second.page, "document.body.textContent.includes('already has a different version open')"), 'conflict reported');
         assert.equal(await app.evaluate(main, 'window.calcpadActiveEditor.getValue()'), 'source = 2');
         assert.equal(await app.evaluate(second.page, 'window.calcpadActiveEditor.getValue()'), 'destination = 3');
+        for (const page of [main, second.page]) {
+            assert.equal(await app.evaluate(page, 'window.calcpadTabs.count'), 1);
+            assert.equal(await app.evaluate(page, 'window.calcpadTabs.activeTab.filePath'), file);
+            assert.equal(await app.evaluate(page, 'window.calcpadTabs.isDirty()'), true);
+        }
+        assert.equal(readFileSync(file, 'utf8'), 'saved = 1');
         for (const page of [main, second.page]) await app.evaluate(page, "window.calcpadBridge.confirmThreeWay = async () => 'no'");
         await app.closeAndWait(main, 'main');
         await app.stop(second.page, second.label);
