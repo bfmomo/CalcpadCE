@@ -24,8 +24,8 @@
            it again is the editor-area button's job — this bar goes with the sidebar. -->
       <button
         class="icon activity-icon activity-hide"
-        title="Hide the sidebar (Ctrl+Shift+B)"
-        aria-label="Hide the sidebar"
+        :title="t('Hide the sidebar (Ctrl+Shift+B)')"
+        :aria-label="t('Hide the sidebar')"
         @click="hideSidebar()"
       ><SidebarIcon /></button>
     </div>
@@ -70,8 +70,8 @@
         <button
           v-if="versionConfig.isWeb && paneIndex === 0"
           class="icon"
-          title="Hide the sidebar (Ctrl+Shift+B)"
-          aria-label="Hide the sidebar"
+          :title="t('Hide the sidebar (Ctrl+Shift+B)')"
+          :aria-label="t('Hide the sidebar')"
           @click="hideSidebar()"
         ><SidebarIcon /></button>
       </div>
@@ -224,6 +224,7 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import CalcpadInsertTab from './CalcpadInsertTab.vue'
 import SidebarIcon from './SidebarIcon.vue'
@@ -248,6 +249,8 @@ import type { CalcpadError, ExportVariant } from '../../types/api'
 import type { WriteMode } from '../../types/settings'
 import { coerceWriteMode, DEFAULT_COMPLETION_DELAY_MS } from '../../types/settings'
 import { DEFAULT_PDF_SETTINGS } from '../types'
+
+const { t } = useI18n()
 import {
   DEFAULT_PREVIEW_SIZE_MB, MIN_PREVIEW_SIZE_MB,
   DEFAULT_CONSOLE_MESSAGES_PER_DOCUMENT, MIN_CONSOLE_MESSAGES_PER_DOCUMENT,
@@ -268,7 +271,7 @@ const props = withDefaults(defineProps<Props>(), {
 interface ViewDef { id: string; label: string; icon: string }
 const FOLDER_ICON = '<svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M14.5 3H7.71l-.85-.85L6.51 2h-5l-.5.5v11l.5.5h13l.5-.5v-10L14.5 3zm-.5 10H2V3h4.29l.85.85.35.15H14v9z"/></svg>'
 const views: ViewDef[] = [
-  { id: 'files', label: 'Files', icon: FOLDER_ICON },
+  { id: 'files', label: t('Files'), icon: FOLDER_ICON },
   { id: 'calcpad', label: 'CalcpadCE', icon: CALCPAD_ICON }
 ]
 const activeView = ref<string>('calcpad')
@@ -339,19 +342,19 @@ const uiControls = ref<UiControl[] | null>(null)
 
 const tabs = computed<Tab[]>(() => {
   const base: Tab[] = [
-    { id: 'insert', label: 'Insert' },
-    { id: 'toc', label: 'TOC' },
-    { id: 'settings', label: 'Settings' },
-    { id: 'variables', label: 'Variables' },
-    { id: 'formatting', label: 'Formatting' },
-    { id: 'export', label: 'Export' },
-    { id: 'errors', label: 'Errors' }
+    { id: 'insert', label: t('Insert') },
+    { id: 'toc', label: t('TOC') },
+    { id: 'settings', label: t('Settings') },
+    { id: 'variables', label: t('Variables') },
+    { id: 'formatting', label: t('Formatting') },
+    { id: 'export', label: t('Export') },
+    { id: 'errors', label: t('Errors') }
   ]
   // The metadata comment editor is driven by editor cursor tracking, available
   // in the VS Code webview and the desktop app (both host a real editor).
   // File info is stamped on save, which only those two hosts have.
   if (props.versionConfig.isVSCode || props.versionConfig.isDesktop) {
-    base.push({ id: 'metadata', label: 'Properties' })
+    base.push({ id: 'metadata', label: t('Properties') })
   }
   return base
 })

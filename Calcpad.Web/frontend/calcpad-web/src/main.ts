@@ -1,6 +1,8 @@
 import * as monaco from 'monaco-editor';
-import { createApp, nextTick } from 'vue';
+import { createApp, nextTick, watch } from 'vue';
 import App from './App.vue';
+import { createCalcpadI18n, readLocaleSetting, menuLabelsFor } from 'calcpad-frontend/i18n';
+import { invoke } from '@tauri-apps/api/core';
 import CalcpadAppVue from 'calcpad-frontend/vue/components/CalcpadApp.vue';
 import { initMessaging } from 'calcpad-frontend/vue/services/messaging';
 import { discardMetadataDraft } from 'calcpad-frontend/vue/metadata-drafts';
@@ -32,6 +34,7 @@ import {
     type InlineImageBudget,
 } from 'calcpad-frontend';
 import { registerCalcpadLanguage, registerCalcpadTheme, remeasureEditorFontsWhenReady, resolveEditorFontFamily } from './editor/setup';
+import { uiText } from './editor/ui-text';
 import { setAppTheme, coerceAppTheme, getResolvedAppTheme, onAppThemeChanged } from './editor/app-theme';
 import { registerSemanticTokensProvider } from './editor/semantic-tokens';
 import { setupDiagnostics } from './editor/diagnostics';
@@ -297,6 +300,15 @@ async function bootstrap(): Promise<void> {
 
     // Mount the main app layout
     const app = createApp(App, { isDesktop: isTauri });
+    const i18n = createCalcpadI18n(readLocaleSetting());
+    app.use(i18n);
+    if (isTauri) {
+        const syncMenu = (locale: string) => {
+            void invoke('set_menu_labels', { labels: menuLabelsFor(locale) }).catch(() => {});
+        };
+        syncMenu(i18n.global.locale.value as string);
+        watch(i18n.global.locale, value => syncMenu(value as string));
+    }
     const appInstance = app.mount('#app') as any;
 
     // Let the bridge prompt via the in-app quick-pick modal (image storage mode).
@@ -913,7 +925,7 @@ async function bootstrap(): Promise<void> {
         // Focus-the-preview-to-line context action (targets this group).
         ed.addAction({
             id: 'calcpad.focusPreviewToLine',
-            label: 'Focus Preview to Line',
+            label: uiText('Focus Preview to Line', '预览定位到光标行'),
             keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Backquote],
             contextMenuGroupId: 'navigation',
             contextMenuOrder: 1.5,
@@ -925,7 +937,7 @@ async function bootstrap(): Promise<void> {
         // from anywhere in the app.
         ed.addAction({
             id: 'calcpad.runPreview',
-            label: 'Run Preview',
+            label: uiText('Run Preview', '运行预览'),
             keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyX],
             contextMenuGroupId: 'navigation',
             contextMenuOrder: 1.4,
@@ -937,7 +949,7 @@ async function bootstrap(): Promise<void> {
         // Code `editMetadataProperties` command.
         ed.addAction({
             id: 'calcpad.editMetadata',
-            label: 'Edit Metadata Properties',
+            label: uiText('Edit Metadata Properties', '编辑元数据属性'),
             contextMenuGroupId: 'navigation',
             contextMenuOrder: 1.6,
             run: (edEditor) => {
@@ -1684,6 +1696,7 @@ async function bootstrap(): Promise<void> {
         isWebOrDesktop: true,
     };
     const sidebarApp = createApp(CalcpadAppVue, { versionConfig, appVersion });
+    sidebarApp.use(i18n);
     const sidebarInstance = sidebarApp.mount('#vue-sidebar') as InstanceType<typeof CalcpadAppVue>;
 
     window.addEventListener('keydown', (event) => {

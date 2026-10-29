@@ -541,6 +541,12 @@ fn refresh_all_menus(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn set_menu_labels(app: AppHandle, labels: HashMap<String, String>) -> Result<(), String> {
+    *MENU_LABELS.lock().map_err(|e| e.to_string())? = Some(labels);
+    refresh_all_menus(&app)
+}
+
 /// Shows or hides the result-mode entries that need a document with readable source —
 /// dropped while a compiled worksheet is open, since the results toolbar drops their
 /// buttons too.
@@ -1423,6 +1429,17 @@ fn recent_label(app: &AppHandle, path: &str) -> String {
 }
 
 /// Builds a window's menu from `MenuState`: the shared recent-file list, and whether
+/// Menu labels for the current UI language, keyed by their English text.
+static MENU_LABELS: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
+
+fn menu_tr(text: &str) -> String {
+    MENU_LABELS
+        .lock()
+        .ok()
+        .and_then(|labels| labels.as_ref().and_then(|map| map.get(text).cloned()))
+        .unwrap_or_else(|| text.to_string())
+}
+
 /// that window keeps the View entries that need a document with readable source.
 fn build_menu(app: &AppHandle, window_label: &str) -> tauri::Result<Menu<tauri::Wry>> {
     let state = app.state::<MenuState>();
@@ -1446,37 +1463,37 @@ fn build_menu(app: &AppHandle, window_label: &str) -> tauri::Result<Menu<tauri::
     // Word form, so neither offers one.
     let export = Submenu::with_items(
         app,
-        "Export",
+        menu_tr("Export"),
         true,
         &[
             &MenuItem::with_id(
                 app,
                 "export-pdf",
-                "Report PDF...",
+                menu_tr("Report PDF..."),
                 true,
                 Some("CmdOrCtrl+E"),
             )?,
-            &MenuItem::with_id(app, "export-html", "Report HTML...", true, None::<&str>)?,
-            &MenuItem::with_id(app, "export-docx", "Report Word...", true, None::<&str>)?,
+            &MenuItem::with_id(app, "export-html", menu_tr("Report HTML..."), true, None::<&str>)?,
+            &MenuItem::with_id(app, "export-docx", menu_tr("Report Word..."), true, None::<&str>)?,
             &sep()?,
             &MenuItem::with_id(
                 app,
                 "export-pdf:preview",
-                "Preview PDF...",
+                menu_tr("Preview PDF..."),
                 true,
                 None::<&str>,
             )?,
             &MenuItem::with_id(
                 app,
                 "export-html:preview",
-                "Preview HTML...",
+                menu_tr("Preview HTML..."),
                 true,
                 None::<&str>,
             )?,
             &MenuItem::with_id(
                 app,
                 "export-docx:preview",
-                "Preview Word...",
+                menu_tr("Preview Word..."),
                 true,
                 None::<&str>,
             )?,
@@ -1484,14 +1501,14 @@ fn build_menu(app: &AppHandle, window_label: &str) -> tauri::Result<Menu<tauri::
             &MenuItem::with_id(
                 app,
                 "export-pdf:input",
-                "Input Form PDF...",
+                menu_tr("Input Form PDF..."),
                 true,
                 None::<&str>,
             )?,
             &MenuItem::with_id(
                 app,
                 "export-html:input",
-                "Input Form HTML...",
+                menu_tr("Input Form HTML..."),
                 true,
                 None::<&str>,
             )?,
@@ -1499,14 +1516,14 @@ fn build_menu(app: &AppHandle, window_label: &str) -> tauri::Result<Menu<tauri::
             &MenuItem::with_id(
                 app,
                 "export-pdf:unwrapped",
-                "Unwrapped PDF...",
+                menu_tr("Unwrapped PDF..."),
                 true,
                 None::<&str>,
             )?,
             &MenuItem::with_id(
                 app,
                 "export-html:unwrapped",
-                "Unwrapped HTML...",
+                menu_tr("Unwrapped HTML..."),
                 true,
                 None::<&str>,
             )?,
@@ -1528,8 +1545,8 @@ fn build_menu(app: &AppHandle, window_label: &str) -> tauri::Result<Menu<tauri::
             )
         })
         .collect::<tauri::Result<Vec<_>>>()?;
-    let no_recent = MenuItem::with_id(app, "no-recent", "No Recent Files", false, None::<&str>)?;
-    let clear_recent = MenuItem::with_id(app, "clear-recent", "Clear Recent", true, None::<&str>)?;
+    let no_recent = MenuItem::with_id(app, "no-recent", menu_tr("No Recent Files"), false, None::<&str>)?;
+    let clear_recent = MenuItem::with_id(app, "clear-recent", menu_tr("Clear Recent"), true, None::<&str>)?;
     let recent_sep = sep()?;
     let mut recent_refs: Vec<&dyn IsMenuItem<tauri::Wry>> = Vec::new();
     if recent_items.is_empty() {
@@ -1543,31 +1560,31 @@ fn build_menu(app: &AppHandle, window_label: &str) -> tauri::Result<Menu<tauri::
         recent_refs.push(&recent_sep);
         recent_refs.push(&clear_recent);
     }
-    let open_recent = Submenu::with_items(app, "Open Recent", true, &recent_refs)?;
+    let open_recent = Submenu::with_items(app, menu_tr("Open Recent"), true, &recent_refs)?;
 
     let file = Submenu::with_items(
         app,
-        "File",
+        menu_tr("File"),
         true,
         &[
-            &MenuItem::with_id(app, "new", "New Tab", true, Some("CmdOrCtrl+N"))?,
+            &MenuItem::with_id(app, "new", menu_tr("New Tab"), true, Some("CmdOrCtrl+N"))?,
             // Ctrl+Shift+N and Ctrl+Q are the editor's Numbered List and Toggle Comment,
             // and a menu accelerator beats Monaco — so neither is bound here.
             &MenuItem::with_id(
                 app,
                 "new-window",
-                "New Window",
+                menu_tr("New Window"),
                 true,
                 Some("CmdOrCtrl+Alt+W"),
             )?,
-            &MenuItem::with_id(app, "open", "Open...", true, Some("CmdOrCtrl+O"))?,
+            &MenuItem::with_id(app, "open", menu_tr("Open..."), true, Some("CmdOrCtrl+O"))?,
             &open_recent,
             &sep()?,
-            &MenuItem::with_id(app, "save", "Save", true, Some("CmdOrCtrl+S"))?,
+            &MenuItem::with_id(app, "save", menu_tr("Save"), true, Some("CmdOrCtrl+S"))?,
             &MenuItem::with_id(
                 app,
                 "save-as",
-                "Save As...",
+                menu_tr("Save As..."),
                 true,
                 Some("CmdOrCtrl+Shift+S"),
             )?,
@@ -1577,113 +1594,113 @@ fn build_menu(app: &AppHandle, window_label: &str) -> tauri::Result<Menu<tauri::
             &MenuItem::with_id(
                 app,
                 "save-as-compiled",
-                "Save As Compiled Worksheet...",
+                menu_tr("Save As Compiled Worksheet..."),
                 true,
                 None::<&str>,
             )?,
             &MenuItem::with_id(
                 app,
                 "save-as-portable",
-                "Export Portable Package...",
+                menu_tr("Export Portable Package..."),
                 true,
                 None::<&str>,
             )?,
             &sep()?,
-            &MenuItem::with_id(app, "close-tab", "Close Tab", true, Some("CmdOrCtrl+W"))?,
+            &MenuItem::with_id(app, "close-tab", menu_tr("Close Tab"), true, Some("CmdOrCtrl+W"))?,
             &sep()?,
             &export,
             &sep()?,
-            &MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?,
+            &MenuItem::with_id(app, "quit", menu_tr("Quit"), true, None::<&str>)?,
         ],
     )?;
 
     let edit = Submenu::with_items(
         app,
-        "Edit",
+        menu_tr("Edit"),
         true,
         &[
-            &MenuItem::with_id(app, "undo", "Undo", true, Some("CmdOrCtrl+Z"))?,
-            &MenuItem::with_id(app, "redo", "Redo", true, Some("CmdOrCtrl+Shift+Z"))?,
+            &MenuItem::with_id(app, "undo", menu_tr("Undo"), true, Some("CmdOrCtrl+Z"))?,
+            &MenuItem::with_id(app, "redo", menu_tr("Redo"), true, Some("CmdOrCtrl+Shift+Z"))?,
             &sep()?,
-            &MenuItem::with_id(app, "cut", "Cut", true, Some("CmdOrCtrl+X"))?,
-            &MenuItem::with_id(app, "copy", "Copy", true, Some("CmdOrCtrl+C"))?,
-            &MenuItem::with_id(app, "paste", "Paste", true, Some("CmdOrCtrl+V"))?,
+            &MenuItem::with_id(app, "cut", menu_tr("Cut"), true, Some("CmdOrCtrl+X"))?,
+            &MenuItem::with_id(app, "copy", menu_tr("Copy"), true, Some("CmdOrCtrl+C"))?,
+            &MenuItem::with_id(app, "paste", menu_tr("Paste"), true, Some("CmdOrCtrl+V"))?,
             &sep()?,
-            &MenuItem::with_id(app, "select-all", "Select All", true, Some("CmdOrCtrl+A"))?,
-            &MenuItem::with_id(app, "find", "Find", true, Some("CmdOrCtrl+F"))?,
-            &MenuItem::with_id(app, "replace", "Replace", true, Some("CmdOrCtrl+H"))?,
+            &MenuItem::with_id(app, "select-all", menu_tr("Select All"), true, Some("CmdOrCtrl+A"))?,
+            &MenuItem::with_id(app, "find", menu_tr("Find"), true, Some("CmdOrCtrl+F"))?,
+            &MenuItem::with_id(app, "replace", menu_tr("Replace"), true, Some("CmdOrCtrl+H"))?,
         ],
     )?;
 
     let toggle_sidebar = MenuItem::with_id(
         app,
         "toggle-sidebar",
-        "Toggle Sidebar",
+        menu_tr("Toggle Sidebar"),
         true,
         Some("CmdOrCtrl+Shift+B"),
     )?;
     let go_to_settings = MenuItem::with_id(
         app,
         "go-to-settings",
-        "Go to Settings",
+        menu_tr("Go to Settings"),
         true,
         Some("CmdOrCtrl+,"),
     )?;
     let toggle_preview = MenuItem::with_id(
         app,
         "toggle-preview",
-        "Toggle Preview",
+        menu_tr("Toggle Preview"),
         true,
         Some("CmdOrCtrl+P"),
     )?;
     let toggle_word_wrap = MenuItem::with_id(
         app,
         "toggle-word-wrap",
-        "Toggle Word Wrap",
+        menu_tr("Toggle Word Wrap"),
         true,
         Some("Alt+Z"),
     )?;
     let split_editor = MenuItem::with_id(
         app,
         "split-editor",
-        "Split Editor Down",
+        menu_tr("Split Editor Down"),
         true,
         Some("CmdOrCtrl+\\"),
     )?;
     let unsplit_editor = MenuItem::with_id(
         app,
         "unsplit-editor",
-        "Merge Editor Groups",
+        menu_tr("Merge Editor Groups"),
         true,
         None::<&str>,
     )?;
-    // Same order as the results toolbar. "Preview" shows #pre and #post with the
-    // document's own values; "Report" hides #pre and applies entered #UI values.
+    // Same order as the results toolbar. menu_tr("Preview") shows #pre and #post with the
+    // document's own values; menu_tr("Report") hides #pre and applies entered #UI values.
     let mode_preview = MenuItem::with_id(
         app,
         "result-mode:preview",
-        "Result Mode: Preview",
+        menu_tr("Result Mode: Preview"),
         true,
         None::<&str>,
     )?;
     let mode_unwrapped = MenuItem::with_id(
         app,
         "result-mode:unwrapped",
-        "Result Mode: Unwrapped",
+        menu_tr("Result Mode: Unwrapped"),
         true,
         None::<&str>,
     )?;
     let mode_input = MenuItem::with_id(
         app,
         "result-mode:ui",
-        "Result Mode: Input",
+        menu_tr("Result Mode: Input"),
         true,
         None::<&str>,
     )?;
     let mode_report = MenuItem::with_id(
         app,
         "result-mode:report",
-        "Result Mode: Report",
+        menu_tr("Result Mode: Report"),
         true,
         None::<&str>,
     )?;
@@ -1711,34 +1728,34 @@ fn build_menu(app: &AppHandle, window_label: &str) -> tauri::Result<Menu<tauri::
     if source_result_modes {
         view_items.push(&mode_report);
     }
-    let view = Submenu::with_items(app, "View", true, &view_items)?;
+    let view = Submenu::with_items(app, menu_tr("View"), true, &view_items)?;
 
     let server = Submenu::with_items(
         app,
-        "Server",
+        menu_tr("Server"),
         true,
         &[
-            &MenuItem::with_id(app, "refresh", "Refresh", true, Some("CmdOrCtrl+Alt+X"))?,
+            &MenuItem::with_id(app, "refresh", menu_tr("Refresh"), true, Some("CmdOrCtrl+Alt+X"))?,
             &MenuItem::with_id(
                 app,
                 "show-server-log",
-                "Show Server Log",
+                menu_tr("Show Server Log"),
                 true,
                 None::<&str>,
             )?,
-            &MenuItem::with_id(app, "stop-server", "Stop Server", true, None::<&str>)?,
-            &MenuItem::with_id(app, "restart-server", "Restart Server", true, None::<&str>)?,
+            &MenuItem::with_id(app, "stop-server", menu_tr("Stop Server"), true, None::<&str>)?,
+            &MenuItem::with_id(app, "restart-server", menu_tr("Restart Server"), true, None::<&str>)?,
         ],
     )?;
 
     let help = Submenu::with_items(
         app,
-        "Help",
+        menu_tr("Help"),
         true,
         &[&MenuItem::with_id(
             app,
             "help-documentation",
-            "Documentation",
+            menu_tr("Documentation"),
             true,
             None::<&str>,
         )?],
@@ -1839,6 +1856,7 @@ pub fn run() {
         .manage(MenuState::default())
         .menu(|app| build_menu(app, MAIN_WINDOW_LABEL))
         .invoke_handler(tauri::generate_handler![
+            set_menu_labels,
             server_url,
             server_failure,
             server_token,
