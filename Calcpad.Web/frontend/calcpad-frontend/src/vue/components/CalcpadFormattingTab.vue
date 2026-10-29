@@ -38,7 +38,7 @@
       </div>
 
       <div class="actions">
-        <button @click="onPrettify">
+        <button @click="onPrettify" :disabled="sourceUnavailable" :title="sourceUnavailable ? 'Unavailable in input mode' : undefined">
           Prettify Document
         </button>
       </div>
@@ -48,12 +48,14 @@
 
 <script setup lang="ts">
 interface Props {
+  sourceUnavailable?: boolean
   indentStyle?: 'tab' | 'space'
   indentSize?: number
   trimTrailingWhitespace?: boolean
 }
 
 withDefaults(defineProps<Props>(), {
+  sourceUnavailable: false,
   indentStyle: 'tab',
   indentSize: 4,
   trimTrailingWhitespace: true
@@ -89,7 +91,6 @@ function onPrettify() {
 
 <style scoped>
 .formatting-tab {
-  height: 100%;
   display: flex;
   flex-direction: column;
 }
@@ -97,7 +98,7 @@ function onPrettify() {
 .formatting-container {
   overflow-y: auto;
   flex: 1;
-  padding: 12px;
+  padding: 0;
 }
 
 .section-title {

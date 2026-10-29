@@ -520,6 +520,16 @@
         </div>
       </section>
 
+      <section v-show="sectionVisible('formatting')" class="settings-section">
+        <h3 class="section-header" @click="toggle('formatting')">
+          <span class="expand-icon" :class="{ collapsed: isCollapsed('formatting') }">&#x25BC;</span>
+          <CalcpadSearchHighlight text="Formatting" :query="query" />
+        </h3>
+        <div v-show="bodyVisible('formatting')" class="section-body">
+          <slot name="formatting"></slot>
+        </div>
+      </section>
+
       <section v-show="sectionVisible('server')" class="settings-section">
         <h3 class="section-header" @click="toggle('server')">
           <span class="expand-icon" :class="{ collapsed: isCollapsed('server') }">&#x25BC;</span>
@@ -979,6 +989,10 @@ const SECTION_META: Record<string, { title: string; rows: Record<string, string>
       colorTheme: 'color theme syntax',
       linterMinSeverity: 'linter minimum severity error warning information'
     }
+  },
+  formatting: {
+    title: 'Formatting',
+    rows: { prettify: 'prettify document auto indent style tab space spaces per level trim trailing whitespace' }
   },
   server: {
     title: 'Server Settings',

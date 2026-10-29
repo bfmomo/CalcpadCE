@@ -31,6 +31,7 @@ async function unusedPort() {
 export class TestApp {
     directory = fileURLToPath(new URL('.work/window-tests/', import.meta.url));
     profile = path.resolve(process.env.APPDATA, 'org.calcpad-ce.window-tests');
+    fixtures = path.join(this.profile, 'fixtures');
     executable = path.join(this.directory, 'app/calcpad-window-tests.exe');
     desktop = process.env.CALCPAD_TEST_DESKTOP ?? 'CalcpadWindowTests';
     runner = null;
@@ -43,7 +44,7 @@ export class TestApp {
             throw new Error('Unexpected test profile path');
         }
         rmSync(this.profile, {recursive: true, force: true});
-        mkdirSync(this.profile, {recursive: true});
+        mkdirSync(this.fixtures, {recursive: true});
     }
 
     async start(args = []) {
@@ -200,7 +201,7 @@ export class TestApp {
     }
 
     fixture(name, content = 'a = 1') {
-        const file = path.join(this.directory, name);
+        const file = path.join(this.fixtures, name);
         writeFileSync(file, content);
         return file;
     }

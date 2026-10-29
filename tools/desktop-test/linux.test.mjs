@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { describe, test } from 'node:test';
 import { LinuxTestApp, until, invoke } from './linux-test-app.mjs';
+import { pause } from './test-app.mjs';
 
 describe('Linux GTK editor', {skip: process.platform !== 'linux', concurrency: false}, () => {
     async function start(t) {
@@ -15,7 +18,7 @@ describe('Linux GTK editor', {skip: process.platform !== 'linux', concurrency: f
         main = await app.start();
         await app.geometry(main, 50, 60);
         await app.evaluate(main, `window.testErrors = [];
-            window.addEventListener('unhandledrejection', event => window.testErrors.push(String(event.reason)));
+            window.addEventListener('unhandledrejection', event => { if (!event.defaultPrevented) window.testErrors.push(String(event.reason)); });
             window.calcpadBridge.confirmThreeWay = async () => 'no';`);
         return {app, main};
     }
@@ -168,6 +171,130 @@ describe('Linux GTK editor', {skip: process.platform !== 'linux', concurrency: f
         await at(app, main, first, 6, 2);
         await keyboard(app, main, 1);
         await at(app, main, first, 30, 1);
+    });
+
+    test('File menu stays closed after a second click or an outside click', {timeout: 60000}, async t => {
+        const {app, main} = await start(t);
+        const trigger = await app.point(main, '[aria-label="File menu"]');
+        const outside = await app.point(main, '.editor-container');
+        const expanded = () => app.evaluate(main, `document.querySelector('[aria-label="File menu"]').getAttribute('aria-expanded') === 'true'`);
+        const click = async point => {
+            await app.movePointer(point.x, point.y);
+            await app.pointerButton(true);
+            await app.pointerButton(false);
+        };
+        for (const destination of [trigger, outside, trigger]) {
+            await click(trigger);
+            await until(expanded, 'File menu opens');
+            await click(destination);
+            await until(async () => !await expanded(), 'File menu closes');
+            await pause(1200);
+            assert.equal(await expanded(), false);
+        }
+        await app.evaluate(main, `document.querySelector('[aria-label="File menu"]').click()`);
+        await until(expanded, 'File menu opens for keyboard navigation');
+        await app.evaluate(main, `document.querySelector('.recent-menu summary').focus();
+            for (const key of ['ArrowRight', 'ArrowLeft', 'Escape']) {
+                document.activeElement.dispatchEvent(new KeyboardEvent('keydown', {key, bubbles: true}));
+            }`);
+        assert.equal(await expanded(), false);
+        const count = await app.evaluate(main, 'window.calcpadTabs.count');
+        await app.evaluate(main, `document.querySelector('[aria-label="File menu"]').click()`);
+        await until(expanded, 'File menu reopens');
+        await app.evaluate(main, `[...document.querySelectorAll('.desktop-file-menu button')].find(button => button.textContent.includes('New Tab')).click()`);
+        await until(async () => await app.evaluate(main, 'window.calcpadTabs.count') === count + 1, 'File menu command opens a tab');
+        assert.equal(await expanded(), false);
+        assert.deepEqual(await app.evaluate(main, 'window.testErrors'), []);
+    });
+
+    test('file dialogs are modal to the window that opened them', {timeout: 60000}, async t => {
+        const {app, main} = await start(t);
+        const second = await app.newWindow(main);
+        await app.geometry(second.handle, 1450, 100);
+        for (const handle of [main, second.handle]) {
+            const trigger = await app.point(handle, '[aria-label="File menu"]');
+            const native = trigger.native;
+            const clickTrigger = async () => {
+                await app.movePointer(trigger.x, trigger.y);
+                await app.pointerButton(true);
+                await app.pointerButton(false);
+            };
+            for (const [method, title] of [['openFile()', 'Open File'], ["saveFileAs('value = 1')", 'Save File']]) {
+                await app.evaluate(handle, `window.testDialogResult = 'pending';
+                    window.calcpadBridge.${method}.then(result => { window.testDialogResult = result; }); undefined;`);
+                const dialog = await app.fileDialog(title);
+                if (!app.isWayland) {
+                    const properties = execFileSync('xprop', ['-id', dialog, 'WM_TRANSIENT_FOR', '_NET_WM_STATE'], {encoding: 'utf8'});
+                    assert.match(properties, new RegExp(`WM_TRANSIENT_FOR.*0x${Number(native).toString(16)}\\b`));
+                    assert.match(properties, /_NET_WM_STATE_MODAL/);
+                }
+                await clickTrigger();
+                await pause(200);
+                assert.equal(await app.evaluate(handle, `document.querySelector('[aria-label="File menu"]').getAttribute('aria-expanded')`), 'false');
+                app.closeFileDialog(dialog);
+                await until(async () => await app.evaluate(handle, 'window.testDialogResult') === null, 'file dialog cancelled');
+                app.focus(native);
+                await clickTrigger();
+                await until(() => app.evaluate(handle, `document.querySelector('[aria-label="File menu"]').getAttribute('aria-expanded') === 'true'`), 'parent accepts input after cancellation');
+                await app.evaluate(handle, `document.querySelector('[aria-label="File menu"]').click()`);
+            }
+        }
+        assert.deepEqual(await app.evaluate(main, 'window.testErrors'), []);
+    });
+
+    test('native file dialogs save and reopen a worksheet outside the home directory', {
+        timeout: 60000,
+        skip: process.env.CALCPAD_TEST_BACKEND === 'wayland' && 'Path entry uses X11 keyboard input',
+    }, async t => {
+        const {app, main} = await start(t);
+        const directory = mkdtempSync(path.join(tmpdir(), 'calcpad-file-dialog-'));
+        t.after(() => rmSync(directory, {recursive: true}));
+        const filename = path.join(directory, 'worksheet.cpd');
+        const content = 'value = 42';
+        await app.evaluate(main, `window.testDialogResult = 'pending';
+            window.calcpadBridge.saveFileAs(${JSON.stringify(content)}).then(result => { window.testDialogResult = result; }); undefined;`);
+        const save = await app.fileDialog('Save File');
+        app.focus(save);
+        app.xdotool('key', 'ctrl+l', 'ctrl+a');
+        app.xdotool('type', '--clearmodifiers', filename);
+        app.xdotool('key', 'Return');
+        await pause(200);
+        app.xdotool('key', 'alt+s');
+        await until(async () => await app.evaluate(main, 'window.testDialogResult') === filename, 'worksheet saved');
+        assert.equal(readFileSync(filename, 'utf8'), content);
+        await app.evaluate(main, `window.testDialogResult = 'pending';
+            window.calcpadBridge.openFile().then(result => { window.testDialogResult = result; }); undefined;`);
+        const open = await app.fileDialog('Open File');
+        app.focus(open);
+        app.xdotool('key', 'ctrl+l', 'ctrl+a');
+        app.xdotool('type', '--clearmodifiers', filename);
+        app.xdotool('key', 'Return');
+        await until(async () => (await app.evaluate(main, 'window.testDialogResult'))?.path === filename, 'worksheet opened');
+        assert.deepEqual(await app.evaluate(main, 'window.testDialogResult'), {path: filename, content});
+        assert.deepEqual(await app.evaluate(main, 'window.testErrors'), []);
+    });
+
+    test('a missing PDF browser is explained inside the app and can be cancelled', {timeout: 60000}, async t => {
+        const {app, main} = await start(t);
+        await app.evaluate(main, `window.testBrowserInstalls = 0;
+            const originalFetch = window.fetch;
+            window.fetch = (resource, options) => {
+                const url = String(resource);
+                if (url.endsWith('/api/calcpad/pdf/browser')) return Promise.resolve(new Response(JSON.stringify({
+                    available: false, source: 'none', path: null, downloadAllowed: true, downloadSizeMb: 150,
+                }), {headers: {'Content-Type': 'application/json'}}));
+                if (url.endsWith('/api/calcpad/pdf/browser/install')) window.testBrowserInstalls++;
+                return originalFetch(resource, options);
+            };
+            document.querySelector('[aria-label="Export to PDF"]').click();`);
+        await until(() => app.evaluate(main, `!!document.querySelector('.quick-pick-card')`), 'PDF browser prompt visible inside app');
+        assert.match(await app.evaluate(main, `document.querySelector('.quick-pick-card').textContent`), /Chromium browser required/);
+        await app.evaluate(main, `[...document.querySelectorAll('.quick-pick-option')].find(button => button.textContent.includes('Not now')).click()`);
+        await until(() => app.evaluate(main, `!document.querySelector('.quick-pick-card')`), 'PDF prompt cancelled');
+        await app.evaluate(main, `window.calcpadActiveEditor.setValue('responsive = 1')`);
+        assert.equal(await app.evaluate(main, 'window.calcpadActiveEditor.getValue()'), 'responsive = 1');
+        assert.equal(await app.evaluate(main, 'window.testBrowserInstalls'), 0);
+        assert.deepEqual(await app.evaluate(main, 'window.testErrors'), []);
     });
 
     test('reorders tabs with native pointer movement below the GTK menu', {timeout: 60000}, async t => {
