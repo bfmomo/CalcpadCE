@@ -1,5 +1,5 @@
 import * as monaco from 'monaco-editor';
-import { createApp, nextTick, watch } from 'vue';
+import { createApp, nextTick, watch, type Ref } from 'vue';
 import App from './App.vue';
 import { createCalcpadI18n, readLocaleSetting, menuLabelsFor } from 'calcpad-frontend/i18n';
 import { invoke } from '@tauri-apps/api/core';
@@ -308,8 +308,9 @@ async function bootstrap(): Promise<void> {
         const syncMenu = (locale: string) => {
             void invoke('set_menu_labels', { labels: menuLabelsFor(locale) }).catch(() => {});
         };
-        syncMenu(i18n.global.locale.value as string);
-        watch(i18n.global.locale, value => syncMenu(value as string));
+        const localeRef = i18n.global.locale as unknown as Ref<string>;
+        syncMenu(localeRef.value);
+        watch(localeRef, value => syncMenu(value));
     }
     const appInstance = app.mount('#app') as any;
 

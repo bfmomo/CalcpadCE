@@ -708,7 +708,7 @@ async fn tab_drag_target(app: AppHandle) -> Result<Option<TabDragTarget>, String
         #[cfg(not(target_os = "linux"))]
         {
             #[cfg(windows)]
-            if window.hwnd().map_err(|e| e.to_string())?.0 != root as _ {
+            if !std::ptr::eq(window.hwnd().map_err(|e| e.to_string())?.0, root) {
                 continue;
             }
             #[cfg(not(windows))]
@@ -1479,8 +1479,20 @@ fn build_menu(app: &AppHandle, window_label: &str) -> tauri::Result<Menu<tauri::
                 true,
                 Some("CmdOrCtrl+E"),
             )?,
-            &MenuItem::with_id(app, "export-html", menu_tr("Report HTML..."), true, None::<&str>)?,
-            &MenuItem::with_id(app, "export-docx", menu_tr("Report Word..."), true, None::<&str>)?,
+            &MenuItem::with_id(
+                app,
+                "export-html",
+                menu_tr("Report HTML..."),
+                true,
+                None::<&str>,
+            )?,
+            &MenuItem::with_id(
+                app,
+                "export-docx",
+                menu_tr("Report Word..."),
+                true,
+                None::<&str>,
+            )?,
             &sep()?,
             &MenuItem::with_id(
                 app,
@@ -1551,8 +1563,20 @@ fn build_menu(app: &AppHandle, window_label: &str) -> tauri::Result<Menu<tauri::
             )
         })
         .collect::<tauri::Result<Vec<_>>>()?;
-    let no_recent = MenuItem::with_id(app, "no-recent", menu_tr("No Recent Files"), false, None::<&str>)?;
-    let clear_recent = MenuItem::with_id(app, "clear-recent", menu_tr("Clear Recent"), true, None::<&str>)?;
+    let no_recent = MenuItem::with_id(
+        app,
+        "no-recent",
+        menu_tr("No Recent Files"),
+        false,
+        None::<&str>,
+    )?;
+    let clear_recent = MenuItem::with_id(
+        app,
+        "clear-recent",
+        menu_tr("Clear Recent"),
+        true,
+        None::<&str>,
+    )?;
     let recent_sep = sep()?;
     let mut recent_refs: Vec<&dyn IsMenuItem<tauri::Wry>> = Vec::new();
     if recent_items.is_empty() {
@@ -1612,7 +1636,13 @@ fn build_menu(app: &AppHandle, window_label: &str) -> tauri::Result<Menu<tauri::
                 None::<&str>,
             )?,
             &sep()?,
-            &MenuItem::with_id(app, "close-tab", menu_tr("Close Tab"), true, Some("CmdOrCtrl+W"))?,
+            &MenuItem::with_id(
+                app,
+                "close-tab",
+                menu_tr("Close Tab"),
+                true,
+                Some("CmdOrCtrl+W"),
+            )?,
             &sep()?,
             &export,
             &sep()?,
@@ -1626,15 +1656,33 @@ fn build_menu(app: &AppHandle, window_label: &str) -> tauri::Result<Menu<tauri::
         true,
         &[
             &MenuItem::with_id(app, "undo", menu_tr("Undo"), true, Some("CmdOrCtrl+Z"))?,
-            &MenuItem::with_id(app, "redo", menu_tr("Redo"), true, Some("CmdOrCtrl+Shift+Z"))?,
+            &MenuItem::with_id(
+                app,
+                "redo",
+                menu_tr("Redo"),
+                true,
+                Some("CmdOrCtrl+Shift+Z"),
+            )?,
             &sep()?,
             &MenuItem::with_id(app, "cut", menu_tr("Cut"), true, Some("CmdOrCtrl+X"))?,
             &MenuItem::with_id(app, "copy", menu_tr("Copy"), true, Some("CmdOrCtrl+C"))?,
             &MenuItem::with_id(app, "paste", menu_tr("Paste"), true, Some("CmdOrCtrl+V"))?,
             &sep()?,
-            &MenuItem::with_id(app, "select-all", menu_tr("Select All"), true, Some("CmdOrCtrl+A"))?,
+            &MenuItem::with_id(
+                app,
+                "select-all",
+                menu_tr("Select All"),
+                true,
+                Some("CmdOrCtrl+A"),
+            )?,
             &MenuItem::with_id(app, "find", menu_tr("Find"), true, Some("CmdOrCtrl+F"))?,
-            &MenuItem::with_id(app, "replace", menu_tr("Replace"), true, Some("CmdOrCtrl+H"))?,
+            &MenuItem::with_id(
+                app,
+                "replace",
+                menu_tr("Replace"),
+                true,
+                Some("CmdOrCtrl+H"),
+            )?,
         ],
     )?;
 
@@ -1741,7 +1789,13 @@ fn build_menu(app: &AppHandle, window_label: &str) -> tauri::Result<Menu<tauri::
         menu_tr("Server"),
         true,
         &[
-            &MenuItem::with_id(app, "refresh", menu_tr("Refresh"), true, Some("CmdOrCtrl+Alt+X"))?,
+            &MenuItem::with_id(
+                app,
+                "refresh",
+                menu_tr("Refresh"),
+                true,
+                Some("CmdOrCtrl+Alt+X"),
+            )?,
             &MenuItem::with_id(
                 app,
                 "show-server-log",
@@ -1749,8 +1803,20 @@ fn build_menu(app: &AppHandle, window_label: &str) -> tauri::Result<Menu<tauri::
                 true,
                 None::<&str>,
             )?,
-            &MenuItem::with_id(app, "stop-server", menu_tr("Stop Server"), true, None::<&str>)?,
-            &MenuItem::with_id(app, "restart-server", menu_tr("Restart Server"), true, None::<&str>)?,
+            &MenuItem::with_id(
+                app,
+                "stop-server",
+                menu_tr("Stop Server"),
+                true,
+                None::<&str>,
+            )?,
+            &MenuItem::with_id(
+                app,
+                "restart-server",
+                menu_tr("Restart Server"),
+                true,
+                None::<&str>,
+            )?,
         ],
     )?;
 
