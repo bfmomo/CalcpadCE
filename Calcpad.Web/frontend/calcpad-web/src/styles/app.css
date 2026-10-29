@@ -133,6 +133,79 @@ select option {
     min-width: 0;
 }
 
+.document-panes.split-layout {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--pane-divider-width) minmax(0, var(--results-width));
+    grid-template-rows: minmax(0, var(--top-group-size)) 4px auto minmax(0, var(--bottom-group-size)) auto;
+}
+
+.split-layout .editor-pane,
+.split-layout .editor-groups,
+.split-layout .editor-group {
+    display: contents;
+}
+
+.split-layout .editor-area {
+    grid-column: 1;
+    grid-row: 1;
+}
+
+.split-layout .editor-group ~ .editor-group .editor-area {
+    grid-row: 4;
+}
+
+.split-layout .editor-group > .tab-strip {
+    position: relative;
+    z-index: 6;
+    grid-column: 1 / -1;
+    grid-row: 3;
+    min-width: 0;
+}
+
+.split-layout .editor-groups > .group-divider {
+    position: relative;
+    z-index: 6;
+    grid-column: 1 / -1;
+    grid-row: 2;
+}
+
+.split-layout > .pane-divider {
+    grid-column: 2;
+    grid-row: 1 / -1;
+}
+
+.split-layout .preview-pane {
+    width: auto;
+    display: grid;
+    grid-column: 3;
+    grid-row: 1 / -1;
+    grid-template-rows: subgrid;
+    min-width: 0;
+}
+
+.split-layout .preview-frames {
+    display: contents;
+}
+
+.split-layout .preview-buffers {
+    grid-column: 1;
+    grid-row: 1;
+}
+
+.split-layout .preview-buffers ~ .preview-buffers {
+    grid-row: 4 / 6;
+}
+
+.split-layout .preview-frames > .group-divider {
+    display: none;
+}
+
+.split-layout .bottom-panel {
+    grid-column: 1;
+    grid-row: 5;
+}
+
 .preview-area {
     display: contents;
 }
@@ -325,27 +398,8 @@ select option {
     overflow: hidden;
 }
 
-/* Subtle top accent on the focused group's tab strip when split, mirroring
- * VS Code's active-group highlight. */
 .editor-group.active-group .tab-strip {
     box-shadow: inset 0 2px 0 var(--vscode-focusBorder, #007acc);
-}
-
-.group-close {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    flex-shrink: 0;
-    background: transparent;
-    color: var(--vscode-tab-inactiveForeground, #969696);
-    border: none;
-    border-left: 1px solid var(--vscode-tab-border, #252526);
-    cursor: pointer;
-}
-.group-close:hover {
-    background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.1));
-    color: var(--vscode-tab-hoverForeground, #ffffff);
 }
 
 /* Draggable horizontal divider between the two stacked groups (editor + preview). */
@@ -429,12 +483,33 @@ select option {
 }
 
 .tab-list {
+    --tab-fade-left: 0px;
+    --tab-fade-right: 0px;
     display: flex;
     flex: 1;
     min-width: 0;
     align-items: flex-start;
     overflow-x: auto;
     overflow-y: hidden;
+}
+
+.tab-list.overflow-left {
+    --tab-fade-left: 24px;
+}
+
+.tab-list.overflow-right {
+    --tab-fade-right: 24px;
+}
+
+.tab-list.overflow-left,
+.tab-list.overflow-right {
+    mask-image: linear-gradient(
+        to right,
+        transparent,
+        #000 var(--tab-fade-left),
+        #000 calc(100% - var(--tab-fade-right)),
+        transparent
+    );
 }
 
 @supports selector(::-webkit-scrollbar) {
@@ -468,6 +543,10 @@ select option {
     flex-shrink: 0;
     box-sizing: border-box;
     border-top: 1px solid transparent;
+}
+
+.tab-list > .tab:last-of-type {
+    border-right: none;
 }
 
 .tab:hover {
@@ -541,12 +620,27 @@ button.tab-close:disabled {
 }
 
 button.tab-new {
-    font-family: revert;
+    --tab-new-hover-inset: 0px;
+    border-top: 1px solid transparent;
     font-size: var(--calcpad-font-size-icon-large);
+    line-height: 1;
+}
+
+button.tab-new svg {
+    width: 1em;
+    height: 1em;
+}
+
+.tab-strip.active-group button.tab-new {
+    --tab-new-hover-inset: 2px;
 }
 
 button.tab-new:hover {
-    background: var(--vscode-tab-hoverBackground, #2a2d2e);
+    background: linear-gradient(
+        to bottom,
+        transparent var(--tab-new-hover-inset),
+        var(--vscode-tab-hoverBackground, #2a2d2e) var(--tab-new-hover-inset)
+    ) border-box no-repeat;
     color: var(--vscode-tab-hoverForeground, #ffffff);
 }
 

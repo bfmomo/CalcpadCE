@@ -24,49 +24,19 @@
     <div class="work-area" :class="{ 'ui-mode': uiModeFullscreen }">
       <div class="document-tabs">
         <template v-for="(group, gi) in groups" :key="group.id">
-          <div
-            v-show="!uiModeFullscreen || group.id === activeGroupId"
-            :class="{ 'active-group': group.id === activeGroupId && isSplit }"
-            @mousedown="onGroupFocus(group.id)"
-            class="tab-strip"
-            :data-tab-group="group.id"
-            @contextmenu.prevent
-          >
-            <div class="tab-list" role="tablist" @wheel="onTabListWheel">
-              <div
-                v-for="tab in group.tabs"
-                :key="tab.id"
-                class="tab"
-                :data-tab-id="tab.id"
-                :class="{ active: tab.isActive, dirty: tab.dirty }"
-                role="tab"
-                :aria-selected="tab.isActive"
-                :title="tab.filePath || tab.title"
-                @mousedown.left="onTabClick(group.id, tab.id)"
-                @mousedown.middle.prevent="onTabClose(group.id, tab.id)"
-                @contextmenu.prevent="onTabContextMenu($event, group.id, tab.id)"
-              >
-                <span class="tab-title">{{ tab.title }}</span>
-                <span v-if="tab.dirty" class="tab-dirty-dot" :title="'Unsaved changes'">●</span>
-                <button
-                  class="icon tab-close"
-                  :disabled="tabCount === 1 && tab.filePath === null"
-                  :title="tab.dirty ? 'Close (unsaved changes)' : 'Close'"
-                  @mousedown.stop
-                  @click.stop="onTabClose(group.id, tab.id)"
-                >
-                  ✕
-                </button>
-              </div>
-              <button class="icon tab-new" title="New tab (Ctrl+T)" @click="onNewTab(group.id)">+</button>
-            </div>
-            <button
-              v-if="isSplit && gi > 0"
-              class="group-close"
-              title="Close this editor group"
-              @click="onCloseGroup(group.id)"
-            >✕</button>
-          </div>
+          <DocumentTabStrip
+            v-if="uiModeFullscreen ? group.id === activeGroupId : gi === 0"
+            :group-id="group.id"
+            :tabs="group.tabs"
+            :tab-count="tabCount"
+            :active="group.id === activeGroupId && isSplit"
+            @focus="onGroupFocus"
+            @activate="onTabClick"
+            @close="onTabClose"
+            @new="onNewTab"
+            @contextmenu="onTabContextMenu"
+            @wheel="onTabListWheel"
+          />
         </template>
         <div v-if="previewVisible" class="results-toolbar" role="toolbar" aria-label="Results controls" @contextmenu.prevent @wheel="onTabListWheel">
           <div class="preview-mode-group" role="group" aria-label="Result mode">
@@ -154,7 +124,16 @@
           </button>
         </div>
       </div>
-      <div class="document-panes">
+      <div
+        class="document-panes"
+        :class="{ 'split-layout': isSplit && !uiModeFullscreen }"
+        :style="isSplit && !uiModeFullscreen ? {
+          '--top-group-size': editorSplitRatio + 'fr',
+          '--bottom-group-size': (1 - editorSplitRatio) + 'fr',
+          '--results-width': previewVisible ? previewWidthRatio * 100 + '%' : '0px',
+          '--pane-divider-width': previewVisible ? '4px' : '0px',
+        } : undefined"
+      >
     <div class="editor-pane">
       <div v-if="draggedFileNames.length && !uiModeFullscreen" class="file-drop-overlay" role="status" aria-live="polite">
         <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -172,6 +151,19 @@
             :style="editorGroupStyle(gi)"
             @mousedown="onGroupFocus(group.id)"
           >
+            <DocumentTabStrip
+              v-if="gi > 0 && !uiModeFullscreen"
+              :group-id="group.id"
+              :tabs="group.tabs"
+              :tab-count="tabCount"
+              :active="group.id === activeGroupId && isSplit"
+              @focus="onGroupFocus"
+              @activate="onTabClick"
+              @close="onTabClose"
+              @new="onNewTab"
+              @contextmenu="onTabContextMenu"
+              @wheel="onTabListWheel"
+            />
             <!-- Anchors the reveal button to the code area, not the tab strip. -->
             <div v-show="!uiModeFullscreen" class="editor-area">
               <div class="editor-container" :ref="el => setEditorRef(group.id, el)"></div>
@@ -563,6 +555,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import DesktopTitleBar from './components/DesktopTitleBar.vue'
+import DocumentTabStrip from './components/DocumentTabStrip.vue'
 import RefreshIcon from 'calcpad-frontend/vue/components/RefreshIcon.vue'
 import SidebarIcon from 'calcpad-frontend/vue/components/SidebarIcon.vue'
 import {
@@ -769,11 +762,14 @@ function editorGroupStyle(index: number): Record<string, string> {
 function onEditorDividerMouseDown(e: MouseEvent): void {
   e.preventDefault()
   draggingEditorDivider.value = true
-  const container = (e.currentTarget as HTMLElement).parentElement
-  if (!container) return
+  const divider = e.currentTarget as HTMLElement
+  const container = divider.closest('.document-panes') as HTMLElement
   const rect = container.getBoundingClientRect()
+  const tabStrip = container.querySelector('.tab-strip') as HTMLElement
+  const panel = container.querySelector('.bottom-panel') as HTMLElement | null
+  const availableHeight = rect.height - divider.offsetHeight - tabStrip.offsetHeight - (panel?.offsetHeight ?? 0)
   const onMove = (ev: MouseEvent) => {
-    const frac = (ev.clientY - rect.top) / rect.height
+    const frac = (ev.clientY - rect.top) / availableHeight
     editorSplitRatio.value = Math.min(0.85, Math.max(0.15, frac))
   }
   const onUp = () => {
@@ -809,7 +805,7 @@ function previewPaneStyle(): Record<string, string> | undefined {
   if (uiModeFullscreen.value) {
     return uiPrintVisible.value ? { flex: `0 0 ${(1 - uiPrintWidthRatio.value) * 100}%` } : undefined
   }
-  return { width: `${previewWidthRatio.value * 100}%` }
+  return isSplit.value ? undefined : { width: `${previewWidthRatio.value * 100}%` }
 }
 
 function uiPrintPaneStyle(): Record<string, string> {
@@ -912,9 +908,6 @@ function onToggleSplit(): void {
   } else {
     onSplitRequest.value?.()
   }
-}
-function onCloseGroup(groupId: string): void {
-  onCloseGroupRequest.value?.(groupId)
 }
 function onGroupFocus(groupId: string): void {
   if (activeGroupId.value !== groupId) onGroupFocusRequest.value?.(groupId)
