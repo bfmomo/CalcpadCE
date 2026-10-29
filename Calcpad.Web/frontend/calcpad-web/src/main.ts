@@ -1056,7 +1056,7 @@ async function bootstrap(): Promise<void> {
         let previewTimer: ReturnType<typeof setTimeout> | null = null;
         let tocTimer: ReturnType<typeof setTimeout> | null = null;
         group.disposables.push(
-            new MetadataFooterView(ed),
+            new MetadataFooterView(ed, () => editorBridge.getExtraSetting('showFileMetadata') === 'true'),
             ed.onDidChangeModelContent(() => {
                 if (definitionsTimer) clearTimeout(definitionsTimer);
                 definitionsTimer = setTimeout(() => {

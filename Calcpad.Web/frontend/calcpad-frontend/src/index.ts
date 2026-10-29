@@ -177,7 +177,7 @@ export {
 } from './services/file-info';
 export type { FileInfo, FileInfoStamp } from './services/file-info';
 export {
-    UI_OVERRIDES_KEY, METADATA_ANCHOR, METADATA_FOLDED_TEXT, METADATA_LINE_TEXT, findMetadataFooter, findMetadataFooterSpan, findMetadataFoldSpan, findStrayUiOverrides, planMetadataFooter,
+    UI_OVERRIDES_KEY, METADATA_ANCHOR, METADATA_HIDDEN_TEXT, findMetadataFooter, findMetadataFooterSpan, findMetadataHiddenSpan, findStrayUiOverrides, planMetadataFooter,
     applyLineEdits, toRangeEdits, keepSelectionOutOfSpan,
 } from './services/metadata-footer';
 export type { LineEdit, RangeEdit, MetadataFooter, FooterChanges, LinePosition } from './services/metadata-footer';

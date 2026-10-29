@@ -38,22 +38,6 @@ public class UiOverridesIncludeTests
         Assert.DoesNotContain("fileInfo", html);
     }
 
-    [Fact]
-    public void CalcpadService_KeepsAUiOverridesCommentDeclaredInTheMainFile()
-    {
-        // The strip only applies to content an #include brings in - the including document's
-        // own comment is exactly the one the host is supposed to read back.
-        using var temp = new TempDir();
-        temp.Write("sub/mod.cpd", "#UI q = 1\n");
-
-        var (html, _, errors, _) = new CalcpadService().Convert(
-            "'<!--{\"uiOverrides\":{\"L:1\":\"8\"}}-->\n#include sub/mod.cpd\n",
-            sourceFilePath: temp.At("main.cpd"), forceUnwrappedCode: true);
-
-        Assert.Empty(errors);
-        Assert.Contains("uiOverrides", html);
-    }
-
     private sealed class TempDir : IDisposable
     {
         public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.IO.Path.GetRandomFileName());

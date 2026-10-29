@@ -346,6 +346,10 @@ export abstract class BaseMessageBridge {
                 this.setExtraSetting('previewUiOverrides', String(message.enabled));
                 this.postToVue({ type: 'previewUiOverridesChanged', enabled: !!message.enabled });
                 break;
+            case 'updateShowFileMetadata':
+                this.setExtraSetting('showFileMetadata', String(!!message.enabled));
+                this.postToVue({ type: 'showFileMetadataChanged', enabled: !!message.enabled });
+                break;
             case 'updateLinterMinSeverity':
                 this.setExtraSetting('linterMinSeverity', message.severity);
                 this.postToVue({ type: 'linterMinSeverityChanged', severity: message.severity });
@@ -594,6 +598,7 @@ export abstract class BaseMessageBridge {
             enableAutoRun: this.getExtraSetting('autoRun') !== 'false',
             enableAutoInputMode: this.getExtraSetting('autoInputMode') !== 'false',
             enablePreviewUiOverrides: this.previewAppliesUiOverrides(),
+            showFileMetadata: this.getExtraSetting('showFileMetadata') === 'true',
             linterMinSeverity: this.getExtraSetting('linterMinSeverity') || 'information',
             logLevel: coerceLogLevel(this.getExtraSetting('logLevel')),
             maxOutputLines: Number(this.getExtraSetting('maxOutputLines')) || 1000,
