@@ -117,34 +117,13 @@
             >Next ▶</button>
           </span>
           <button
-            v-if="uiModeFullscreen"
-            class="toolbar-btn"
-            :class="{ active: uiPrintVisible }"
-            @click="toggleUiPrint"
-            title="Show the report the entered values produce"
-          >Report</button>
-          <button
-            v-if="resultMode === 'report' || resultMode === 'ui'"
-            class="toolbar-btn"
-            @click="onPrintReport"
-            title="Export the report — #pre hidden, entered #UI values applied — as a PDF"
-          >Print PDF</button>
-          <button
             v-if="resultMode === 'ui' && uiOverridesDirty"
             class="toolbar-btn"
             @click="onSaveUiOverrides"
             title="Write the entered values into the document so they survive a reload"
           >Save values</button>
-          <template v-if="!activeTabIsCompiled">
-            <button
-              v-if="uiModeFullscreen"
-              class="toolbar-btn"
-              @click="exitUiMode"
-              title="Return to the editor"
-            >Exit input mode</button>
-          </template>
         </div>
-        <div v-if="!uiModeFullscreen" class="tab-actions" role="toolbar" aria-label="Editor actions">
+        <div class="tab-actions" role="toolbar" aria-label="Editor actions">
           <button
             class="icon"
             @click="onRunPreview"
@@ -157,6 +136,7 @@
           <button
             class="icon"
             :class="{ active: isSplit }"
+            :disabled="uiModeFullscreen"
             @click="onToggleSplit"
             :title="isSplit ? 'Merge editor groups' : 'Split editor down (Ctrl+\\)'"
             :aria-label="isSplit ? 'Merge editor groups' : 'Split editor down'"
@@ -166,11 +146,11 @@
           </button>
           <button
             class="icon results-sidebar-toggle"
-            @click="togglePreview"
-            :title="previewVisible ? 'Hide the results pane (Ctrl+P)' : 'Show the results pane (Ctrl+P)'"
-            :aria-label="previewVisible ? 'Hide the results pane' : 'Show the results pane'"
+            @click="uiModeFullscreen ? toggleUiPrint() : togglePreview()"
+            :title="uiModeFullscreen ? (uiPrintVisible ? 'Hide the report' : 'Show the report') : (previewVisible ? 'Hide the results pane (Ctrl+P)' : 'Show the results pane (Ctrl+P)')"
+            :aria-label="uiModeFullscreen ? (uiPrintVisible ? 'Hide the report' : 'Show the report') : (previewVisible ? 'Hide the results pane' : 'Show the results pane')"
           >
-            <SidebarIcon side="right" :collapsed="!previewVisible" />
+            <SidebarIcon side="right" :collapsed="uiModeFullscreen ? !uiPrintVisible : !previewVisible" />
           </button>
         </div>
       </div>
@@ -457,11 +437,6 @@
 
     <!-- Report companion to the input form: the print layout with entered values applied. -->
     <div v-if="uiModeFullscreen && uiPrintVisible" class="preview-pane ui-print-pane" :style="uiPrintPaneStyle()">
-      <div class="preview-toolbar" @contextmenu.prevent>
-        <span>Report</span>
-        <span class="spacer"></span>
-        <button class="toolbar-btn" @click="toggleUiPrint" title="Hide the report">✕</button>
-      </div>
       <div class="preview-frames">
         <div v-if="activeGroup" class="preview-buffers" :style="{ flex: '1 1 0', minHeight: '0' }">
           <iframe
@@ -646,8 +621,6 @@ const uiOverridesDirty = ref(false)
 const onSaveUiOverridesRequest = ref<(() => void) | null>(null)
 // Asked before the input form closes; false keeps it open.
 const onExitUiModeRequest = ref<(() => Promise<boolean>) | null>(null)
-// "Print PDF" — the host runs the export.
-const onPrintReportRequest = ref<(() => void) | null>(null)
 // #pause steps of the input form; null when it has none.
 const uiPause = ref<UiPauseState | null>(null)
 const onUiPauseStepRequest = ref<((direction: 'next' | 'previous') => void) | null>(null)
@@ -1681,21 +1654,12 @@ function onSaveUiOverrides(): void {
   onSaveUiOverridesRequest.value?.()
 }
 
-function onPrintReport(): void {
-  onPrintReportRequest.value?.()
-}
-
 function setUiPauseState(state: UiPauseState | null): void {
   uiPause.value = state
 }
 
 function onUiPauseStep(direction: 'next' | 'previous'): void {
   onUiPauseStepRequest.value?.(direction)
-}
-
-/** Leaves the fullscreen input form for the report view, bringing the editor back. */
-function exitUiMode(): void {
-  void setResultMode('report')
 }
 
 function setPreviewLoading(groupId: string, loading: boolean): void {
@@ -2463,7 +2427,6 @@ defineExpose({
   setUiOverridesDirty,
   onSaveUiOverridesRequest,
   onExitUiModeRequest,
-  onPrintReportRequest,
   setUiPauseState,
   onUiPauseStepRequest,
   setUiPrintHtml,

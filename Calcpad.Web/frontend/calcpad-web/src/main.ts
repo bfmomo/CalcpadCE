@@ -1830,12 +1830,6 @@ async function bootstrap(): Promise<void> {
         refreshAllPreviews();
     };
 
-    // "Print PDF" on the report/input toolbar. The report is the default export variant,
-    // so this is the same render the Export tab's Report group produces.
-    appInstance.onPrintReportRequest = () => {
-        activeBridge.handleMessage({ type: 'generatePdf' });
-    };
-
     // The report pane renders on demand; showing it needs a fresh convert.
     appInstance.onUiPrintToggled = () => {
         // The new iframe only exists after Vue has patched the DOM.
