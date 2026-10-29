@@ -36,6 +36,7 @@ export class CalcpadVueUIProvider implements vscode.WebviewViewProvider {
     public resolveUiControls?: () => Promise<UiControl[] | null>;
     /** Entered #UI values the panel rewrote, so the extension's in-memory ones follow. */
     public onUiOverridesEdited?: (documentUri: string, overrides: Record<string, string>) => void;
+    public onShowFileMetadataChanged?: () => void;
     /** The compiled worksheet being worked in, which has no text editor for the Properties tab to read. */
     public getCompiledSource?: () => { uri: vscode.Uri; text: string } | undefined;
     public updateCompiledFileInfo?: (uri: vscode.Uri, patch: unknown) => void;
@@ -192,6 +193,11 @@ export class CalcpadVueUIProvider implements vscode.WebviewViewProvider {
 
                 case 'updateAutoInputMode':
                     this._settingsManager.setExtra('autoInputMode', data.enabled);
+                    break;
+
+                case 'updateShowFileMetadata':
+                    this._settingsManager.setExtra('showFileMetadata', !!data.enabled);
+                    this.onShowFileMetadataChanged?.();
                     break;
 
                 // Changes what an open preview renders, so it is re-run rather than
@@ -523,6 +529,7 @@ export class CalcpadVueUIProvider implements vscode.WebviewViewProvider {
             enableAutoRun: sm.getExtraBool('autoRun', true),
             enableAutoInputMode: sm.getExtraBool('autoInputMode', true),
             enablePreviewUiOverrides: sm.getExtraBool('previewUiOverrides', false),
+            showFileMetadata: sm.getExtraBool('showFileMetadata', false),
             darkBackground: sm.getExtra('darkBackground', '#1e1e1e'),
             linterMinSeverity: sm.getExtra('linterMinSeverity', 'information'),
             logLevel: coerceLogLevel(sm.getExtra('logLevel', 'warning')),

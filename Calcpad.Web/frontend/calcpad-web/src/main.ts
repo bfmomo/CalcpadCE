@@ -56,6 +56,8 @@ import { registerFormattingCommands, getParseMode } from './editor/formatting-co
 import { registerFormatDocumentProvider } from './editor/format-document';
 import { setActiveDocumentKeyResolver, getActiveDocumentKey, type EditorBridge } from './editor/bridge';
 import { EditorGroup } from './editor/editor-group';
+import { navigationDirection, type NavigationLocation } from './editor/navigation-history';
+import { createBrowserNavigationHistory, createDesktopNavigationHistory, type NavigationHistoryClient } from './services/navigation-history';
 import { UNTITLED_TITLE, type TabManager } from './tabs/tab-manager';
 import { setupTabDragging } from './tabs/tab-drag';
 import { toDisplayLogLevel } from 'calcpad-frontend';
@@ -354,6 +356,54 @@ async function bootstrap(): Promise<void> {
     let activeGroup!: EditorGroup;
     let editor!: monaco.editor.IStandaloneCodeEditor;
     let tabs!: TabManager;
+    const historyCallbacks = { confirm: confirmLeaveUiDoc, restore: restoreNavigation };
+    let navigationHistory: NavigationHistoryClient | undefined = isTauri
+        ? undefined : createBrowserNavigationHistory(historyCallbacks);
+
+    function recordNavigation(group: EditorGroup, jump = false): void {
+        if (group !== activeGroup) return;
+        const tabId = group.tabs.activeId;
+        const position = group.editor.getPosition();
+        const selection = group.editor.getSelection() ?? undefined;
+        if (tabId && position) {
+            navigationHistory?.record({ groupId: group.id, tabId, position, selection }, jump);
+        }
+    }
+
+    function restoreNavigation(location: NavigationLocation): boolean {
+        const group = groups.get(location.groupId);
+        if (!group?.tabs.modelForTab(location.tabId)) return false;
+        if (activeGroup !== group) setActiveGroup(group);
+        group.tabs.activate(location.tabId);
+        if (location.selection) {
+            group.editor.setSelection(location.selection);
+            group.editor.revealRangeInCenterIfOutsideViewport(group.editor.getSelection()!);
+        } else {
+            const position = group.editor.getModel()!.validatePosition(location.position);
+            group.editor.setPosition(position);
+            group.editor.revealPositionInCenterIfOutsideViewport(position);
+        }
+        group.editor.focus();
+        return true;
+    }
+
+    window.addEventListener('keydown', event => {
+        const direction = navigationDirection(event, navigator.platform);
+        if (!direction) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        void navigationHistory?.go(direction);
+    }, true);
+
+    const handleHistoryMouse = (event: MouseEvent): void => {
+        if (event.button !== 3 && event.button !== 4) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (event.type === 'mousedown') void navigationHistory?.go(event.button === 3 ? -1 : 1);
+    };
+    for (const type of ['mousedown', 'mouseup', 'auxclick'] as const) {
+        window.addEventListener(type, handleHistoryMouse, true);
+    }
 
     const editorBridge = activeBridge as unknown as EditorBridge;
     const getFileContext = 'buildFileContext' in activeBridge
@@ -648,7 +698,7 @@ async function bootstrap(): Promise<void> {
         if (!appInstance.isPreviewVisible() || appInstance.getResultMode() !== 'ui') return false;
         appInstance.scrollPreviewToSourceLine(activeGroup.id, line, true);
         activeGroup.editor.revealLineInCenter(line);
-        activeGroup.editor.setPosition({ lineNumber: line, column: 1 });
+        activeGroup.editor.setPosition({ lineNumber: line, column: 1 }, 'code.navigation');
         return true;
     };
 
@@ -879,6 +929,7 @@ async function bootstrap(): Promise<void> {
         syncInputMode();
         if (appInstance.isPreviewVisible()) void refreshPreviewFor(group);
         refreshWindowTitle();
+        recordNavigation(group);
     }
 
     // Assigned in the Tauri branch; the browser tab title is all there is on web.
@@ -896,6 +947,13 @@ async function bootstrap(): Promise<void> {
     // ---- Per-group wiring (common to web + desktop) ----
     function wireGroupCommon(group: EditorGroup): void {
         const ed = group.editor;
+
+        group.disposables.push(ed.onDidChangeCursorSelection(event => {
+            if (event.source === 'restoreState'
+                || (event.source === 'modelChange' && event.reason === monaco.editor.CursorChangeReason.NotSet)) return;
+            recordNavigation(group, event.source === 'code.navigation' || event.source === 'code.jump');
+        }));
+        group.tabs.onTabRemoved(tabId => navigationHistory?.remove(group.id, tabId));
 
         // Focus tracking — the focused group becomes active.
         group.disposables.push(
@@ -1010,7 +1068,7 @@ async function bootstrap(): Promise<void> {
         let previewTimer: ReturnType<typeof setTimeout> | null = null;
         let tocTimer: ReturnType<typeof setTimeout> | null = null;
         group.disposables.push(
-            new MetadataFooterView(ed),
+            new MetadataFooterView(ed, () => editorBridge.getExtraSetting('showFileMetadata') === 'true'),
             ed.onDidChangeModelContent(() => {
                 if (definitionsTimer) clearTimeout(definitionsTimer);
                 definitionsTimer = setTimeout(() => {
@@ -1060,6 +1118,7 @@ async function bootstrap(): Promise<void> {
 
         // On tab switch within this group, re-emit markers + re-lint + repaint.
         group.tabs.onActiveModelChanged(() => {
+            recordNavigation(group);
             applyCompiledWorksheetMode(group);
             const enteringUi = shouldAutoEnterUiMode(group);
             refreshProblemsFor(group);
@@ -1258,16 +1317,29 @@ async function bootstrap(): Promise<void> {
             const existing = group.tabs.findByPath(path);
             if (!existing) continue;
             if (group !== activeGroup) setActiveGroup(group);
-            group.tabs.activate(existing.id);
-            if (position) {
-                group.editor.setPosition(position);
-                group.editor.revealPositionInCenter(position);
-            }
+            group.tabs.activate(existing.id, position ?? undefined);
             group.editor.focus();
             return true;
         }
         return false;
     }
+
+    monaco.editor.registerEditorOpener({
+        openCodeEditor(source, resource, selectionOrPosition) {
+            const group = [...groups.values()].find(group => group.editor === source);
+            if (!group) return false;
+            const tab = group.tabs.all.find(tab => group.tabs.modelForTab(tab.id)!.uri.toString() === resource.toString());
+            if (!tab) return false;
+            const position = selectionOrPosition && ('startLineNumber' in selectionOrPosition
+                ? { lineNumber: selectionOrPosition.startLineNumber, column: selectionOrPosition.startColumn }
+                : selectionOrPosition);
+            group.tabs.activate(tab.id, position);
+            if (selectionOrPosition && 'startLineNumber' in selectionOrPosition) {
+                group.editor.setSelection(selectionOrPosition, 'code.jump');
+            }
+            return true;
+        },
+    });
 
     if (tauriBridge) {
         const bridge = tauriBridge;
@@ -1286,8 +1358,7 @@ async function bootstrap(): Promise<void> {
                     : null;
                 if (activateOpenFile(absPath, position)) return;
                 if (await invokeTauri!<boolean>('navigate_to_open_file', { path: absPath, position })) return;
-                tabs.openFile(absPath, await bridge.readFile(absPath));
-                activateOpenFile(absPath, position);
+                tabs.openFile(absPath, await bridge.readFile(absPath), position ?? undefined);
             } catch (err) {
                 console.warn(`[references] failed to open include ${absPath}: ${err instanceof Error ? err.message : String(err)}`);
             }
@@ -1527,7 +1598,7 @@ async function bootstrap(): Promise<void> {
                 appInstance.setResultMode('unwrapped');
             } else {
                 group.editor.revealLineInCenter(line);
-                group.editor.setPosition({ lineNumber: line, column: 1 });
+                group.editor.setPosition({ lineNumber: line, column: 1 }, 'code.navigation');
                 group.editor.focus();
             }
             return;
@@ -1642,7 +1713,7 @@ async function bootstrap(): Promise<void> {
         editor.setPosition({
             lineNumber: problem.startLineNumber,
             column: problem.startColumn,
-        });
+        }, 'code.navigation');
         editor.focus();
     };
 
@@ -1998,6 +2069,11 @@ async function bootstrap(): Promise<void> {
         // addressed to one window has to name this window to stay out of the others.
         const listenHere = <T>(event: string, handler: (e: { payload: T }) => void) =>
             tauriListen<T>(event, handler, { target: windowLabel });
+        navigationHistory = await createDesktopNavigationHistory(historyCallbacks);
+        await getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+            if (focused) recordNavigation(activeGroup);
+        });
+        recordNavigation(activeGroup);
         // The seeded group was wired before this branch ran, so kick the first native title.
         setNativeTitle = (title: string) => { void getCurrentWindow().setTitle(title); };
         refreshWindowTitle();

@@ -385,6 +385,18 @@
             </label>
           </div>
 
+          <div v-show="rowVisible('editor', 'showFileMetadata')" class="setting-group">
+            <label>
+              <input
+                v-model="showFileMetadata"
+                type="checkbox"
+                @change="updateShowFileMetadata"
+              />
+              <CalcpadSearchHighlight text="Show File Metadata" :query="query" />
+              <span class="setting-info" title="Show the file info and saved #UI values comments at the end of the file. They are hidden by default and edited in the Properties tab.">ⓘ</span>
+            </label>
+          </div>
+
           <div v-if="versionConfig.isWebOrDesktop" v-show="rowVisible('editor', 'completionDelayMs')" class="setting-group">
             <label for="completionDelayMs">
               <CalcpadSearchHighlight text="Completion Delay (ms):" :query="query" />
@@ -734,6 +746,7 @@ interface Props {
   initialEnableAutoRun?: boolean
   initialEnableAutoInputMode?: boolean
   initialEnablePreviewUiOverrides?: boolean
+  initialShowFileMetadata?: boolean
   initialDarkBackground?: string
   initialLinterMinSeverity?: string
   initialLogLevel?: string
@@ -765,6 +778,7 @@ const props = withDefaults(defineProps<Props>(), {
   initialEnableAutoRun: true,
   initialEnableAutoInputMode: true,
   initialEnablePreviewUiOverrides: false,
+  initialShowFileMetadata: false,
   initialDarkBackground: '#1a1a2e',
   initialLinterMinSeverity: 'information',
   initialLogLevel: 'warning',
@@ -795,6 +809,7 @@ const emit = defineEmits<{
   updateAutoRun: [enabled: boolean]
   updateAutoInputMode: [enabled: boolean]
   updatePreviewUiOverrides: [enabled: boolean]
+  updateShowFileMetadata: [enabled: boolean]
   updateDarkBackground: [color: string]
   updateLinterMinSeverity: [severity: string]
   updateLogLevel: [level: string]
@@ -884,6 +899,7 @@ const enablePreviewCursorSync = ref(props.initialEnablePreviewCursorSync)
 const enableAutoRun = ref(props.initialEnableAutoRun)
 const enableAutoInputMode = ref(props.initialEnableAutoInputMode)
 const enablePreviewUiOverrides = ref(props.initialEnablePreviewUiOverrides)
+const showFileMetadata = ref(props.initialShowFileMetadata)
 const darkBackground = ref(props.initialDarkBackground)
 const linterMinSeverity = ref(props.initialLinterMinSeverity)
 const logLevel = ref(props.initialLogLevel)
@@ -979,6 +995,7 @@ const SECTION_META: Record<string, { title: string; rows: Record<string, string>
       autoRun: 'auto-run preview render',
       autoInputMode: 'auto input mode ui form first open',
       previewUiOverrides: 'apply ui values preview entered overrides debug troubleshoot',
+      showFileMetadata: 'show hide file metadata info ui overrides comment footer',
       fontFamily: 'editor font family juliamono system',
       completionDelayMs: 'completion delay autocomplete code suggestions milliseconds ms',
       fontsFolder: 'open fonts folder custom',
@@ -1128,6 +1145,10 @@ const updateAutoInputMode = () => {
 
 const updatePreviewUiOverrides = () => {
   emit('updatePreviewUiOverrides', enablePreviewUiOverrides.value)
+}
+
+const updateShowFileMetadata = () => {
+  emit('updateShowFileMetadata', showFileMetadata.value)
 }
 
 const updateDarkBackground = () => {
@@ -1292,6 +1313,13 @@ watch(
   () => props.initialEnablePreviewUiOverrides,
   (newValue) => {
     enablePreviewUiOverrides.value = newValue
+  }
+)
+
+watch(
+  () => props.initialShowFileMetadata,
+  (newValue) => {
+    showFileMetadata.value = newValue
   }
 )
 

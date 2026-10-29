@@ -48,7 +48,7 @@ Run the GTK tests on Linux or inside WSL with Linux-installed Node.js, Rust, and
 Install the desktop build dependencies and these additional test tools on Ubuntu:
 
 ```bash
-sudo apt install webkit2gtk-driver xvfb openbox xdotool dbus-x11 sway python3
+sudo apt install webkit2gtk-driver xvfb openbox xdotool dbus-x11 sway wtype python3
 cargo install tauri-driver --version 2.0.6 --locked
 ```
 
@@ -61,6 +61,7 @@ bash tools/desktop-test/linux-tests.sh
 Use `--skip-build` to reuse the test build.
 Tests use an isolated application profile and a separate display.
 They exercise real pointer dragging, tab reordering, cancellation, split groups, and transfers between GTK windows.
+Navigation tests cover keyboard shortcuts, mouse side buttons, previews, selections, tabs, split groups, and windows.
 Run `GDK_SCALE=2 bash tools/desktop-test/linux-tests.sh --skip-build` to check display scaling.
 Run `bash tools/desktop-test/linux-tests.sh --wayland --skip-build` to test native Wayland.
 Logs and test diagnostics are saved under `tools/desktop-test/.work/linux-tests/`.

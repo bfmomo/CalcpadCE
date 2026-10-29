@@ -41,6 +41,7 @@ export class LinuxTestApp {
             },
         });
         if (this.isWayland) {
+            this.keyboard = spawn('wtype', ['-s', '600000'], {stdio: ['ignore', 'ignore', log]});
             this.pointer = spawn('python3', [fileURLToPath(new URL('wayland-pointer.py', import.meta.url))], {
                 stdio: ['pipe', 'pipe', log],
             });
@@ -163,9 +164,34 @@ export class LinuxTestApp {
         }
     }
 
-    async pointerButton(pressed) {
-        if (this.isWayland) await this.pointerCommand({type: 'button', pressed});
-        else this.xdotool(pressed ? 'mousedown' : 'mouseup', 1);
+    async pointerButton(pressed, button = 1) {
+        if (this.isWayland) await this.pointerCommand({type: 'button', pressed, button: {1: 272, 8: 275, 9: 276}[button]});
+        else this.xdotool(pressed ? 'mousedown' : 'mouseup', button);
+    }
+
+    async keyChord(handle, ...keys) {
+        const native = await this.nativeWindow(handle);
+        this.focus(native);
+        await until(() => this.isWayland ? this.swayWindow(node => node.id === native).focused
+            : this.xdotool('getactivewindow') === String(native), 'GTK keyboard window focused');
+        if (this.isWayland) {
+            execFileSync('wtype', [...keys.slice(0, -1).flatMap(key => ['-M', key]), '-k', keys.at(-1)]);
+        } else {
+            this.xdotool('key', keys.join('+'));
+        }
+    }
+
+    async historyMouse(handle, direction, selector = '.monaco-editor') {
+        const point = await this.point(handle, selector);
+        await this.movePointer(point.x, point.y);
+        const button = direction === -1 ? 8 : 9;
+        await this.pointerButton(true, button);
+        await this.pointerButton(false, button);
+    }
+
+    async closeWindow(handle) {
+        await this.evaluate(handle, invoke('plugin:window|close'));
+        await until(async () => !(await this.request(`/session/${this.session}/window/handles`)).includes(handle), 'GTK window closed');
     }
 
     focus(native) {
@@ -271,9 +297,12 @@ export class LinuxTestApp {
         writeFileSync(path.join(this.profile, 'screenshot.png'), Buffer.from(screenshot, 'base64'));
         const state = await this.evaluate(handle, `({title: document.title,
             tabs: window.calcpadTabs.all, errors: window.testErrors,
+            position: window.calcpadActiveEditor.getPosition(), focused: document.hasFocus(),
+            activeElement: document.activeElement?.tagName,
             pointer: window.testPointer, events: window.testDragEvents?.slice(-40),
             marker: document.querySelector('.tab-drop-marker')?.outerHTML})`);
         state.drag = this.lastDrag;
+        state.nativeFocus = this.isWayland ? this.swayWindow(node => node.focused)?.name : this.xdotool('getactivewindow');
         state.windows = {};
         for (const [label, window] of await this.windows()) {
             state.windows[label] = await this.evaluate(window, `({tabs: window.calcpadTabs.all,
@@ -290,5 +319,6 @@ export class LinuxTestApp {
             await exited;
         }
         this.pointer?.kill();
+        this.keyboard?.kill();
     }
 }

@@ -87,6 +87,7 @@ Pick the Monaco editor's font family from:
 - **Auto-Run Preview** *(default on)* — when off, the preview only re-renders when the preview panel is first opened or a manual **Run Preview** is triggered (**Ctrl+Alt+X**, the ▶ Run button, the editor context menu, or the Server → Refresh menu in the desktop app). Turn this off for large documents where every keystroke re-render is too costly.
 - **Open `#UI` Documents in Input Mode** *(default on)* — a document declaring `#UI` controls opens as its input form the first time you open it. See [UI Mode](new-ui-mode.md).
 - **Apply `#UI` Values in Preview** *(default off)* — Preview normally renders the document's own default values; turn this on and it renders the values entered into the input form instead, while still showing `#pre` and `#post` together. Useful for tracking down errors that only appear once a form is filled in. This also affects exporting and #write/#append.
+- **Show File Metadata** *(default off)* — show the [metadata footer](new-metadata-comments.md#file-metadata-footer) at the end of the file. Edit it in the [Properties tab](new-calcpad-panel.md#properties).
 
 ## Data output
 
