@@ -311,7 +311,7 @@ export class TauriMessageBridge extends BaseMessageBridge {
     }
 
     protected async saveExportedFile(req: ExportRequest): Promise<string | null> {
-        if (req.extensions[0] === 'pdf' || req.extensions[0] === 'docx') {
+        if (req.openDirectly) {
             const filename = pathBasename(this.getExportDefaultPath(req) ?? req.defaultName);
             const filePath = await invoke<string>('create_export_path', { filename });
             const bytes = req.data instanceof Uint8Array ? req.data : new Uint8Array(req.data as ArrayBuffer);

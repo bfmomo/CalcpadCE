@@ -2736,7 +2736,7 @@ async function bootstrap(): Promise<void> {
                     : format === 'docx' ? 'saveDocx'
                     : null;
                 if (type) {
-                    tauriBridge.handleMessage({ type, variant: variant ?? 'report' });
+                    tauriBridge.handleMessage({ type, variant: variant ?? 'report', openDirectly: format === 'pdf' || format === 'docx' });
                     return;
                 }
             }
