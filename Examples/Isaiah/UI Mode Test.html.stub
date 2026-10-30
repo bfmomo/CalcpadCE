@@ -1,5 +1,5 @@
 <div class="calcpad-output">
- <h3>UI Mode Test File</h3>
+ <h1>UI Mode Test File</h1>
  <p>Exercises every #UI JSON property, #UI inside macros/conditionals/loops, and the two documented error cases.</p>
  <p>
  </p>

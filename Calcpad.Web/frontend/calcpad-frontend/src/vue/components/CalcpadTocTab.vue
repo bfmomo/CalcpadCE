@@ -7,7 +7,7 @@
       <div v-else-if="headings.length === 0" class="no-headings">
         No headings found. Add headings to your document using
         <code>"Title</code>, <code>'&lt;h2&gt;...&lt;/h2&gt;</code>,
-        or markdown <code>'### ...</code> syntax.
+        or markdown <code>'## ...</code> syntax.
       </div>
       <div v-else class="toc-list">
         <div
