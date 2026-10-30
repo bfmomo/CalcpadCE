@@ -315,7 +315,6 @@ const tabs = computed<Tab[]>(() => {
     { id: 'toc', label: t('TOC') },
     { id: 'settings', label: t('Settings') },
     { id: 'variables', label: t('Variables') },
-    { id: 'formatting', label: t('Formatting') },
     { id: 'export', label: t('Export') },
     { id: 'errors', label: t('Errors') }
   ]
