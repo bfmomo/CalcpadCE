@@ -290,6 +290,7 @@ const zh: Record<string, string> = {
     "Return to the editor": "返回编辑器",
     "File menu (Alt+M)": "文件菜单（Alt+M）",
     "File menu": "文件菜单",
+    "File": "文件",
     "Minimize": "最小化",
     "Restore": "还原",
     "Maximize": "最大化",

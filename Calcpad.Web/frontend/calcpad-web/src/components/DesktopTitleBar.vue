@@ -104,7 +104,7 @@ async function showMenu(): Promise<void> {
     return
   }
   if (menuOpen.value) return
-  const button = document.querySelector('[aria-label="File menu"]')!.getBoundingClientRect()
+  const button = fileButton.value!.getBoundingClientRect()
   menuOpen.value = true
   try {
     await invoke('show_app_menu', { x: button.left, y: button.bottom })
