@@ -4,45 +4,7 @@
        the embedded webview. Blocking the default menu everywhere is safer than
        relying on children to opt in. -->
   <div class="calcpad-vue-ui" :class="{ split: isSplit }" @contextmenu.prevent>
-    <!-- Activity icons: only shown when the host app enables extra tabs (desktop).
-         VS Code webview keeps a single Calcpad view. -->
-    <div v-if="versionConfig.isDesktop" class="activity-icons">
-      <div class="activity-tabs" role="tablist">
-        <button
-          v-for="view in views"
-          :key="view.id"
-          :class="['icon', 'activity-icon', { active: activeView === view.id }]"
-          :title="view.label"
-          :aria-label="view.label"
-          :aria-selected="activeView === view.id"
-          role="tab"
-          @click="switchView(view.id)"
-          v-html="view.icon"
-        ></button>
-      </div>
-      <!-- Sits on the bar that spans both views, since hiding takes both away. Showing
-           it again is the editor-area button's job — this bar goes with the sidebar. -->
-      <button
-        class="icon activity-icon activity-hide"
-        :title="t('Hide the sidebar (Ctrl+Shift+B)')"
-        :aria-label="t('Hide the sidebar')"
-        @click="hideSidebar()"
-      ><SidebarIcon /></button>
-    </div>
-
-    <CalcpadFilesTab
-      v-if="versionConfig.isDesktop && activeView === 'files'"
-      :opened-folder="openedFolder"
-      :tree-roots="fileTreeRoots"
-      @open-folder-request="handleOpenFolderRequest"
-      @open-file="handleOpenFile"
-      @expand-folder="handleExpandFolder"
-      @open-containing-folder="handleOpenContainingFolder"
-      @close-folder="handleCloseFolder"
-      @refresh-folder="handleRefreshFolder"
-    />
-
-    <div v-show="!versionConfig.isDesktop || activeView === 'calcpad'" class="calcpad-view" :class="{ split: isSplit }">
+    <div class="calcpad-view" :class="{ split: isSplit }">
     <div v-for="(pane, paneIndex) in panes" :key="pane.id" class="calcpad-pane">
     <div class="tab-bar">
     <div class="tab-container">
@@ -56,7 +18,7 @@
         {{ tab.label }}
       </button>
       <!-- Grouped so the pair wraps as a unit rather than splitting across rows at
-           the sidebar's minimum width (the second button is web-only). -->
+           the sidebar's minimum width. -->
       <div class="pane-actions">
         <button
           class="icon"
@@ -68,7 +30,7 @@
         <!-- Hides the whole sidebar, unlike the button beside it, which splits or
              closes one of its inner panes. -->
         <button
-          v-if="versionConfig.isWeb && paneIndex === 0"
+          v-if="(versionConfig.isWeb || versionConfig.isDesktop) && paneIndex === 0"
           class="icon"
           :title="t('Hide the sidebar (Ctrl+Shift+B)')"
           :aria-label="t('Hide the sidebar')"
@@ -83,8 +45,20 @@
     <!-- `inert` rather than a per-control disabled flag: it takes the whole tab out of
          both pointer and keyboard reach in one attribute, whatever it holds. -->
     <div class="tab-content" :class="{ unavailable: tabUnavailable(pane.activeTab), 'insert-content': pane.activeTab === 'insert' }" :inert="tabUnavailable(pane.activeTab)">
+      <CalcpadFilesTab
+        v-if="pane.activeTab === 'files'"
+        :opened-folder="openedFolder"
+        :tree-roots="fileTreeRoots"
+        @open-folder-request="handleOpenFolderRequest"
+        @open-file="handleOpenFile"
+        @expand-folder="handleExpandFolder"
+        @open-containing-folder="handleOpenContainingFolder"
+        @close-folder="handleCloseFolder"
+        @refresh-folder="handleRefreshFolder"
+      />
+
       <CalcpadInsertTab
-        v-if="pane.activeTab === 'insert'"
+        v-else-if="pane.activeTab === 'insert'"
         :ref="el => { if (paneIndex === 0) insertTab = el as InstanceType<typeof CalcpadInsertTab> | null }"
         :insert-items="insertItems"
         @insert-text="handleInsertText"
@@ -156,22 +130,25 @@
         @update-editor-font-family="handleUpdateEditorFontFamily"
         @update-completion-delay-ms="handleUpdateCompletionDelayMs"
         @update-user-name="handleUpdateUserName"
-      />
+      >
+        <template #formatting>
+          <CalcpadFormattingTab
+            :source-unavailable="inputMode"
+            :indent-style="prettifyIndentStyle"
+            :indent-size="prettifyIndentSize"
+            :trim-trailing-whitespace="prettifyTrimTrailing"
+            @prettify="handlePrettify"
+            @update-indent-style="handleUpdatePrettifyIndentStyle"
+            @update-indent-size="handleUpdatePrettifyIndentSize"
+            @update-trim-trailing="handleUpdatePrettifyTrim"
+          />
+        </template>
+      </CalcpadSettingsTab>
       <CalcpadVariablesTab
         v-else-if="pane.activeTab === 'variables'"
         :variables-data="variablesData"
         :loading="variablesLoading"
         @insert-text="handleInsertText"
-      />
-      <CalcpadFormattingTab
-        v-else-if="pane.activeTab === 'formatting'"
-        :indent-style="prettifyIndentStyle"
-        :indent-size="prettifyIndentSize"
-        :trim-trailing-whitespace="prettifyTrimTrailing"
-        @prettify="handlePrettify"
-        @update-indent-style="handleUpdatePrettifyIndentStyle"
-        @update-indent-size="handleUpdatePrettifyIndentSize"
-        @update-trim-trailing="handleUpdatePrettifyTrim"
       />
       <CalcpadExportTab
         v-else-if="pane.activeTab === 'export'"
@@ -230,7 +207,6 @@ import { useI18n } from 'vue-i18n'
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import CalcpadInsertTab from './CalcpadInsertTab.vue'
 import SidebarIcon from './SidebarIcon.vue'
-import { CALCPAD_ICON } from '../calcpad-icon'
 import CalcpadTocTab from './CalcpadTocTab.vue'
 import CalcpadSettingsTab from './CalcpadSettingsTab.vue'
 import CalcpadVariablesTab from './CalcpadVariablesTab.vue'
@@ -268,17 +244,7 @@ const props = withDefaults(defineProps<Props>(), {
   appVersion: '',
 })
 
-// Views: string-identified so future views can be added by extending this list.
-// Icons are inline SVGs so no external asset dependencies.
-interface ViewDef { id: string; label: string; icon: string }
-const FOLDER_ICON = '<svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M14.5 3H7.71l-.85-.85L6.51 2h-5l-.5.5v11l.5.5h13l.5-.5v-10L14.5 3zm-.5 10H2V3h4.29l.85.85.35.15H14v9z"/></svg>'
-const views: ViewDef[] = [
-  { id: 'files', label: t('Files'), icon: FOLDER_ICON },
-  { id: 'calcpad', label: 'CalcpadCE', icon: CALCPAD_ICON }
-]
-const activeView = ref<string>('calcpad')
-
-// Files view state
+// Files tab state
 const openedFolder = ref<string | null>(null)
 const fileTreeRoots = ref<FileNode[]>([])
 
@@ -353,6 +319,7 @@ const tabs = computed<Tab[]>(() => {
     { id: 'export', label: t('Export') },
     { id: 'errors', label: t('Errors') }
   ]
+  if (props.versionConfig.isDesktop) base.unshift({ id: 'files', label: t('Files') })
   // The metadata comment editor is driven by editor cursor tracking, available
   // in the VS Code webview and the desktop app (both host a real editor).
   // File info is stamped on save, which only those two hosts have.
@@ -371,7 +338,8 @@ const storedStartTab = (): string => {
   } catch {
     // ignore unavailable storage
   }
-  return tabs.value.find(t => t.id === stored)?.id ?? tabs.value[0].id
+  const tabId = stored === 'formatting' ? 'settings' : stored
+  return tabs.value.find(t => t.id === tabId)?.id ?? 'insert'
 }
 panes.value[0].activeTab = storedStartTab()
 
@@ -382,7 +350,7 @@ panes.value[0].activeTab = storedStartTab()
  * Settings and Properties' File Info still work, since a filled-in worksheet is still
  * navigated, exported and reviewed.
  */
-const SOURCE_TABS = ['insert', 'variables', 'formatting', 'errors']
+const SOURCE_TABS = ['insert', 'variables', 'errors']
 const INPUT_MODE_NOTE = 'Unavailable in input mode — this acts on the document source, which the input form does not edit.'
 const inputMode = ref(false)
 const tabUnavailable = (tabId: string) => inputMode.value && SOURCE_TABS.includes(tabId)
@@ -400,14 +368,6 @@ const writeMode = ref<WriteMode>('reportOnly')
 const writeResult = ref<{ ok: boolean; message: string } | null>(null)
 
 // Methods
-const switchView = (viewId: string) => {
-  activeView.value = viewId
-  if (viewId === 'files' && !openedFolder.value) {
-    // Ask host if a previously-opened folder is still around
-    postMessage({ type: 'getOpenedFolder' })
-  }
-}
-
 const handleOpenFolderRequest = () => {
   postMessage({ type: 'openFolder' })
 }
@@ -482,6 +442,10 @@ const activateTab = (pane: Pane, tabId: string) => {
   // Nothing below is worth asking the host for while the tab is inert.
   if (tabUnavailable(tabId)) return
 
+  if (tabId === 'files' && !openedFolder.value) {
+    postMessage({ type: 'getOpenedFolder' })
+  }
+
   // Request fresh data when switching to variables tab
   if (tabId === 'variables') {
     variablesLoading.value = true
@@ -494,8 +458,8 @@ const activateTab = (pane: Pane, tabId: string) => {
     postMessage({ type: 'getHeadings' })
   }
 
-  // Request prettify settings when switching to Formatting tab
-  if (tabId === 'formatting') {
+  // Load formatting preferences with Settings.
+  if (tabId === 'settings') {
     postMessage({ type: 'getPrettifySettings' })
   }
 
@@ -528,7 +492,6 @@ const switchTab = (tabId: string) => {
 
 const focusInsertSearch = async () => {
   if (tabUnavailable('insert')) return
-  switchView('calcpad')
   switchTab('insert')
   await nextTick()
   insertTab.value!.focusSearch()
@@ -962,7 +925,7 @@ const handleMessage = (event: MessageEvent) => {
   }
 }
 
-defineExpose({ switchTab, switchView, focusInsertSearch })
+defineExpose({ switchTab, focusInsertSearch })
 
 // Initialize
 onMounted(() => {
@@ -1013,11 +976,6 @@ onUnmounted(() => {
   background: var(--vscode-editor-background);
 }
 
-.calcpad-vue-ui > .files-tab {
-  flex: 1 1 auto;
-  min-height: 0;
-}
-
 .calcpad-view {
   flex: 1 1 auto;
   min-height: 0;
@@ -1030,54 +988,6 @@ onUnmounted(() => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-
-.activity-icons {
-  display: flex;
-  gap: 0;
-  padding: 4px 4px;
-  flex: 0 0 auto;
-  border-bottom: 1px solid var(--vscode-widget-border);
-  background: var(--vscode-activityBar-background, var(--vscode-editor-background));
-}
-
-/* The tablist holds only the view tabs; the hide button is not one of them. */
-.activity-tabs {
-  display: flex;
-}
-
-.activity-hide {
-  margin-left: auto;
-}
-
-.activity-hide :deep(svg) {
-  width: 20px;
-  height: 20px;
-}
-
-.activity-icon {
-  width: 32px;
-  height: 32px;
-  color: var(--vscode-activityBar-inactiveForeground, var(--vscode-foreground));
-  border-radius: 3px;
-  position: relative;
-  opacity: 0.75;
-  transition: background 0.15s ease, opacity 0.15s ease, color 0.15s ease;
-}
-
-.activity-icon:hover,
-.activity-icon.active {
-  opacity: 1;
-}
-
-.icon.activity-icon:hover {
-  background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
-  color: var(--vscode-activityBar-inactiveForeground, var(--vscode-foreground));
-}
-
-.icon.activity-icon.active {
-  color: var(--vscode-activityBar-foreground, var(--vscode-foreground));
-  background: var(--vscode-list-activeSelectionBackground, var(--vscode-toolbar-activeBackground, rgba(90, 93, 94, 0.5)));
 }
 
 .calcpad-view.split .calcpad-pane + .calcpad-pane {

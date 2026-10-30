@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
-use tauri::menu::{IsMenuItem, Menu, MenuBuilder, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{IsMenuItem, Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu};
 use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
@@ -21,6 +21,8 @@ use navigation_history::{
     complete_navigation, navigate_history, record_navigation, remove_navigation,
     NavigationHistoryState,
 };
+#[cfg(target_os = "linux")]
+mod linux_file_dialog;
 
 // Populated at setup(); read from the panic hook (which has no AppHandle).
 static CRASH_DIR: OnceLock<PathBuf> = OnceLock::new();
@@ -82,15 +84,8 @@ impl Default for PrimaryWindow {
     }
 }
 
-/// What the menu shows that the frontend owns. A menu item carries no mutable
-/// state of its own, so every change rebuilds the whole menu — which means each
-/// setter has to be able to read back the parts it isn't changing.
-///
-/// The result-mode entries follow whichever document a window has open, so they are
-/// keyed by window label; the recent-file list is genuinely shared.
 #[derive(Default)]
 struct MenuState {
-    source_result_modes: Mutex<HashMap<String, bool>>,
     recent_files: Mutex<Vec<String>>,
 }
 
@@ -535,9 +530,92 @@ fn refresh_menu(app: &AppHandle, label: &str) -> Result<(), String> {
     let Some(window) = app.get_webview_window(label) else {
         return Ok(());
     };
-    let menu = build_menu(app, label).map_err(|e| e.to_string())?;
+    let menu = build_menu(app).map_err(|e| e.to_string())?;
     window.set_menu(menu).map_err(|e| e.to_string())?;
+    window.hide_menu().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+fn show_app_menu(window: tauri::WebviewWindow, x: f64, y: f64) -> Result<(), String> {
+    window
+        .popup_menu_at(
+            &window.menu().expect("window menu exists"),
+            tauri::LogicalPosition::new(x, y),
+        )
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Serialize)]
+struct AppMenuEntry {
+    id: String,
+    text: String,
+    enabled: bool,
+    children: Vec<AppMenuEntry>,
+}
+
+fn app_menu_entries(items: Vec<MenuItemKind<tauri::Wry>>) -> tauri::Result<Vec<AppMenuEntry>> {
+    items
+        .into_iter()
+        .map(|item| {
+            let id = item.id().0.clone();
+            let (text, enabled, children) = match item {
+                MenuItemKind::MenuItem(item) => (item.text()?, item.is_enabled()?, vec![]),
+                MenuItemKind::Submenu(item) => (
+                    item.text()?,
+                    item.is_enabled()?,
+                    app_menu_entries(item.items()?)?,
+                ),
+                MenuItemKind::Predefined(_) => (String::new(), false, vec![]),
+                MenuItemKind::Check(item) => (item.text()?, item.is_enabled()?, vec![]),
+                MenuItemKind::Icon(item) => (item.text()?, item.is_enabled()?, vec![]),
+            };
+            Ok(AppMenuEntry {
+                id,
+                text,
+                enabled,
+                children,
+            })
+        })
+        .collect()
+}
+
+#[tauri::command]
+fn get_app_menu(window: tauri::WebviewWindow) -> Result<Vec<AppMenuEntry>, String> {
+    let menu = window.menu().expect("window menu exists");
+    app_menu_entries(menu.items().map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn create_export_path(app: AppHandle, filename: String) -> Result<String, String> {
+    let filename = Path::new(&filename)
+        .file_name()
+        .ok_or("export filename is required")?;
+    let extension = Path::new(filename).extension().and_then(|e| e.to_str());
+    if !matches!(extension, Some("pdf" | "docx")) {
+        return Err("unsupported temporary export format".into());
+    }
+    let mut random = [0u8; 16];
+    getrandom::getrandom(&mut random).map_err(|e| e.to_string())?;
+    let id: String = random.iter().map(|b| format!("{b:02x}")).collect();
+    let directory = std::env::temp_dir().join(format!("calcpad-export-{id}"));
+    std::fs::create_dir(&directory).map_err(|e| e.to_string())?;
+    let path = directory.join(filename);
+    app.fs_scope()
+        .allow_file(&path)
+        .map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// Menu labels for the active UI language, keyed by their English text.
+static MENU_LABELS: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
+
+fn menu_tr(text: &str) -> String {
+    MENU_LABELS
+        .lock()
+        .ok()
+        .and_then(|labels| labels.as_ref().and_then(|map| map.get(text).cloned()))
+        .unwrap_or_else(|| text.to_string())
 }
 
 fn refresh_all_menus(app: &AppHandle) -> Result<(), String> {
@@ -551,23 +629,6 @@ fn refresh_all_menus(app: &AppHandle) -> Result<(), String> {
 fn set_menu_labels(app: AppHandle, labels: HashMap<String, String>) -> Result<(), String> {
     *MENU_LABELS.lock().map_err(|e| e.to_string())? = Some(labels);
     refresh_all_menus(&app)
-}
-
-/// Shows or hides the result-mode entries that need a document with readable source —
-/// dropped while a compiled worksheet is open, since the results toolbar drops their
-/// buttons too.
-#[tauri::command]
-fn set_source_result_modes_visible(
-    app: AppHandle,
-    window: tauri::WebviewWindow,
-    visible: bool,
-) -> Result<(), String> {
-    app.state::<MenuState>()
-        .source_result_modes
-        .lock()
-        .expect("menu state mutex poisoned")
-        .insert(window.label().to_string(), visible);
-    refresh_menu(&app, window.label())
 }
 
 /// Replaces the File → Open Recent entries, most recent first. The list itself is
@@ -818,7 +879,7 @@ async fn new_window(app: AppHandle) -> Result<String, String> {
     );
     config.label = label.clone();
 
-    let menu = build_menu(&app, &label).map_err(|e| e.to_string())?;
+    let menu = build_menu(&app).map_err(|e| e.to_string())?;
     let window = tauri::WebviewWindowBuilder::from_config(&app, &config)
         .map_err(|e| e.to_string())?
         .menu(menu)
@@ -1434,119 +1495,14 @@ fn recent_label(app: &AppHandle, path: &str) -> String {
     }
 }
 
-/// Builds a window's menu from `MenuState`: the shared recent-file list, and whether
-/// Menu labels for the current UI language, keyed by their English text.
-static MENU_LABELS: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
-
-fn menu_tr(text: &str) -> String {
-    MENU_LABELS
-        .lock()
-        .ok()
-        .and_then(|labels| labels.as_ref().and_then(|map| map.get(text).cloned()))
-        .unwrap_or_else(|| text.to_string())
-}
-
-/// that window keeps the View entries that need a document with readable source.
-fn build_menu(app: &AppHandle, window_label: &str) -> tauri::Result<Menu<tauri::Wry>> {
+fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let state = app.state::<MenuState>();
-    let source_result_modes = state
-        .source_result_modes
-        .lock()
-        .expect("menu state mutex poisoned")
-        .get(window_label)
-        .copied()
-        .unwrap_or(true);
     let recent = state
         .recent_files
         .lock()
         .expect("menu state mutex poisoned")
         .clone();
     let sep = || PredefinedMenuItem::separator(app);
-
-    // Grouped by what gets rendered: the unsuffixed ids are the report — the default variant
-    // everywhere — while `:preview`, `:input` and `:unwrapped` name one explicitly, and the
-    // frontend parses `export-<format>[:<variant>]`. A form and a code listing have no meaningful
-    // Word form, so neither offers one.
-    let export = Submenu::with_items(
-        app,
-        menu_tr("Export"),
-        true,
-        &[
-            &MenuItem::with_id(
-                app,
-                "export-pdf",
-                menu_tr("Report PDF..."),
-                true,
-                Some("CmdOrCtrl+E"),
-            )?,
-            &MenuItem::with_id(
-                app,
-                "export-html",
-                menu_tr("Report HTML..."),
-                true,
-                None::<&str>,
-            )?,
-            &MenuItem::with_id(
-                app,
-                "export-docx",
-                menu_tr("Report Word..."),
-                true,
-                None::<&str>,
-            )?,
-            &sep()?,
-            &MenuItem::with_id(
-                app,
-                "export-pdf:preview",
-                menu_tr("Preview PDF..."),
-                true,
-                None::<&str>,
-            )?,
-            &MenuItem::with_id(
-                app,
-                "export-html:preview",
-                menu_tr("Preview HTML..."),
-                true,
-                None::<&str>,
-            )?,
-            &MenuItem::with_id(
-                app,
-                "export-docx:preview",
-                menu_tr("Preview Word..."),
-                true,
-                None::<&str>,
-            )?,
-            &sep()?,
-            &MenuItem::with_id(
-                app,
-                "export-pdf:input",
-                menu_tr("Input Form PDF..."),
-                true,
-                None::<&str>,
-            )?,
-            &MenuItem::with_id(
-                app,
-                "export-html:input",
-                menu_tr("Input Form HTML..."),
-                true,
-                None::<&str>,
-            )?,
-            &sep()?,
-            &MenuItem::with_id(
-                app,
-                "export-pdf:unwrapped",
-                menu_tr("Unwrapped PDF..."),
-                true,
-                None::<&str>,
-            )?,
-            &MenuItem::with_id(
-                app,
-                "export-html:unwrapped",
-                menu_tr("Unwrapped HTML..."),
-                true,
-                None::<&str>,
-            )?,
-        ],
-    )?;
 
     // Each entry carries its own path in the id rather than a list index, so a click
     // can never land on a different file than the one whose label was read. The
@@ -1592,10 +1548,8 @@ fn build_menu(app: &AppHandle, window_label: &str) -> tauri::Result<Menu<tauri::
     }
     let open_recent = Submenu::with_items(app, menu_tr("Open Recent"), true, &recent_refs)?;
 
-    let file = Submenu::with_items(
+    Menu::with_items(
         app,
-        menu_tr("File"),
-        true,
         &[
             &MenuItem::with_id(app, "new", menu_tr("New Tab"), true, Some("CmdOrCtrl+N"))?,
             // Ctrl+Shift+N and Ctrl+Q are the editor's Numbered List and Toggle Comment,
@@ -1618,23 +1572,6 @@ fn build_menu(app: &AppHandle, window_label: &str) -> tauri::Result<Menu<tauri::
                 true,
                 Some("CmdOrCtrl+Shift+S"),
             )?,
-            // Compiling is an export: it writes a .cpdz alongside, leaving the open
-            // document on its own path, so it sits apart from the Save entries. Packaging
-            // is the same kind of thing, for a recipient who has to read the source.
-            &MenuItem::with_id(
-                app,
-                "save-as-compiled",
-                menu_tr("Save As Compiled Worksheet..."),
-                true,
-                None::<&str>,
-            )?,
-            &MenuItem::with_id(
-                app,
-                "save-as-portable",
-                menu_tr("Export Portable Package..."),
-                true,
-                None::<&str>,
-            )?,
             &sep()?,
             &MenuItem::with_id(
                 app,
@@ -1644,158 +1581,6 @@ fn build_menu(app: &AppHandle, window_label: &str) -> tauri::Result<Menu<tauri::
                 Some("CmdOrCtrl+W"),
             )?,
             &sep()?,
-            &export,
-            &sep()?,
-            &MenuItem::with_id(app, "quit", menu_tr("Quit"), true, None::<&str>)?,
-        ],
-    )?;
-
-    let edit = Submenu::with_items(
-        app,
-        menu_tr("Edit"),
-        true,
-        &[
-            &MenuItem::with_id(app, "undo", menu_tr("Undo"), true, Some("CmdOrCtrl+Z"))?,
-            &MenuItem::with_id(
-                app,
-                "redo",
-                menu_tr("Redo"),
-                true,
-                Some("CmdOrCtrl+Shift+Z"),
-            )?,
-            &sep()?,
-            &MenuItem::with_id(app, "cut", menu_tr("Cut"), true, Some("CmdOrCtrl+X"))?,
-            &MenuItem::with_id(app, "copy", menu_tr("Copy"), true, Some("CmdOrCtrl+C"))?,
-            &MenuItem::with_id(app, "paste", menu_tr("Paste"), true, Some("CmdOrCtrl+V"))?,
-            &sep()?,
-            &MenuItem::with_id(
-                app,
-                "select-all",
-                menu_tr("Select All"),
-                true,
-                Some("CmdOrCtrl+A"),
-            )?,
-            &MenuItem::with_id(app, "find", menu_tr("Find"), true, Some("CmdOrCtrl+F"))?,
-            &MenuItem::with_id(
-                app,
-                "replace",
-                menu_tr("Replace"),
-                true,
-                Some("CmdOrCtrl+H"),
-            )?,
-        ],
-    )?;
-
-    let toggle_sidebar = MenuItem::with_id(
-        app,
-        "toggle-sidebar",
-        menu_tr("Toggle Sidebar"),
-        true,
-        Some("CmdOrCtrl+Shift+B"),
-    )?;
-    let go_to_settings = MenuItem::with_id(
-        app,
-        "go-to-settings",
-        menu_tr("Go to Settings"),
-        true,
-        Some("CmdOrCtrl+,"),
-    )?;
-    let toggle_preview = MenuItem::with_id(
-        app,
-        "toggle-preview",
-        menu_tr("Toggle Preview"),
-        true,
-        Some("CmdOrCtrl+P"),
-    )?;
-    let toggle_word_wrap = MenuItem::with_id(
-        app,
-        "toggle-word-wrap",
-        menu_tr("Toggle Word Wrap"),
-        true,
-        Some("Alt+Z"),
-    )?;
-    let split_editor = MenuItem::with_id(
-        app,
-        "split-editor",
-        menu_tr("Split Editor Down"),
-        true,
-        Some("CmdOrCtrl+\\"),
-    )?;
-    let unsplit_editor = MenuItem::with_id(
-        app,
-        "unsplit-editor",
-        menu_tr("Merge Editor Groups"),
-        true,
-        None::<&str>,
-    )?;
-    // Same order as the results toolbar. menu_tr("Preview") shows #pre and #post with the
-    // document's own values; menu_tr("Report") hides #pre and applies entered #UI values.
-    let mode_preview = MenuItem::with_id(
-        app,
-        "result-mode:preview",
-        menu_tr("Result Mode: Preview"),
-        true,
-        None::<&str>,
-    )?;
-    let mode_unwrapped = MenuItem::with_id(
-        app,
-        "result-mode:unwrapped",
-        menu_tr("Result Mode: Unwrapped"),
-        true,
-        None::<&str>,
-    )?;
-    let mode_input = MenuItem::with_id(
-        app,
-        "result-mode:ui",
-        menu_tr("Result Mode: Input"),
-        true,
-        None::<&str>,
-    )?;
-    let mode_report = MenuItem::with_id(
-        app,
-        "result-mode:report",
-        menu_tr("Result Mode: Report"),
-        true,
-        None::<&str>,
-    )?;
-    let view_sep_1 = sep()?;
-    let view_sep_2 = sep()?;
-    let mut view_items: Vec<&dyn IsMenuItem<tauri::Wry>> = vec![
-        &toggle_sidebar,
-        &go_to_settings,
-        &toggle_preview,
-        &toggle_word_wrap,
-        &view_sep_1,
-        &split_editor,
-        &unsplit_editor,
-        &view_sep_2,
-    ];
-    // A compiled worksheet is only ever filled in: it has no source for preview or
-    // unwrapped to render, and its report is read beside the form rather than in place
-    // of it. Input is all that is left, so the rest are omitted from the menu the way
-    // the results toolbar omits their buttons.
-    if source_result_modes {
-        view_items.push(&mode_preview);
-        view_items.push(&mode_unwrapped);
-    }
-    view_items.push(&mode_input);
-    if source_result_modes {
-        view_items.push(&mode_report);
-    }
-    let view = Submenu::with_items(app, menu_tr("View"), true, &view_items)?;
-
-    let server = Submenu::with_items(
-        app,
-        menu_tr("Server"),
-        true,
-        &[
-            &MenuItem::with_id(
-                app,
-                "refresh",
-                menu_tr("Refresh"),
-                true,
-                Some("CmdOrCtrl+Alt+X"),
-            )?,
             &MenuItem::with_id(
                 app,
                 "show-server-log",
@@ -1817,25 +1602,10 @@ fn build_menu(app: &AppHandle, window_label: &str) -> tauri::Result<Menu<tauri::
                 true,
                 None::<&str>,
             )?,
+            &sep()?,
+            &MenuItem::with_id(app, "quit", menu_tr("Quit"), true, None::<&str>)?,
         ],
-    )?;
-
-    let help = Submenu::with_items(
-        app,
-        menu_tr("Help"),
-        true,
-        &[&MenuItem::with_id(
-            app,
-            "help-documentation",
-            menu_tr("Documentation"),
-            true,
-            None::<&str>,
-        )?],
-    )?;
-
-    MenuBuilder::new(app)
-        .items(&[&file, &edit, &view, &server, &help])
-        .build()
+    )
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1915,6 +1685,13 @@ pub fn run() {
         )
         .plugin(tauri_plugin_opener::init())
         .plugin(
+            tauri::plugin::Builder::<tauri::Wry>::new("custom-titlebar")
+                .on_window_ready(|window| {
+                    window.hide_menu().expect("failed to hide native menu");
+                })
+                .build(),
+        )
+        .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_filter(|label| label == MAIN_WINDOW_LABEL)
                 .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED)
@@ -1927,7 +1704,7 @@ pub fn run() {
         .manage(OpenFiles::default())
         .manage(MenuState::default())
         .manage(NavigationHistoryState::default())
-        .menu(|app| build_menu(app, MAIN_WINDOW_LABEL))
+        .menu(build_menu)
         .invoke_handler(tauri::generate_handler![
             set_menu_labels,
             server_url,
@@ -1944,7 +1721,6 @@ pub fn run() {
             log_dir,
             take_pending_launch_files,
             allow_document_dir,
-            set_source_result_modes_visible,
             set_recent_files,
             confirm_three_way,
             window_labels,
@@ -1960,6 +1736,11 @@ pub fn run() {
             remove_navigation,
             navigate_history,
             complete_navigation,
+            show_app_menu,
+            get_app_menu,
+            create_export_path,
+            #[cfg(target_os = "linux")]
+            linux_file_dialog::linux_file_dialog,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
@@ -1991,13 +1772,6 @@ pub fn run() {
                 window
                     .state::<NavigationHistoryState>()
                     .remove_window(window.label());
-                window
-                    .state::<MenuState>()
-                    .source_result_modes
-                    .lock()
-                    .expect("menu state mutex poisoned")
-                    .remove(window.label());
-
                 let app = window.app_handle();
                 let next = app
                     .webview_windows()

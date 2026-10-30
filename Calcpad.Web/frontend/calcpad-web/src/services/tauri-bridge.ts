@@ -12,7 +12,8 @@ import {
     mkdir,
     exists,
 } from '@tauri-apps/plugin-fs';
-import { open as dialogOpen, save as dialogSave, message as dialogMessage, ask as dialogAsk } from '@tauri-apps/plugin-dialog';
+import { message as dialogMessage, ask as dialogAsk } from '@tauri-apps/plugin-dialog';
+import { open as dialogOpen, save as dialogSave } from './file-dialog';
 import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { Store } from '@tauri-apps/plugin-store';
 import { platform } from '@tauri-apps/plugin-os';
@@ -310,6 +311,14 @@ export class TauriMessageBridge extends BaseMessageBridge {
     }
 
     protected async saveExportedFile(req: ExportRequest): Promise<string | null> {
+        if (req.openDirectly) {
+            const filename = pathBasename(this.getExportDefaultPath(req) ?? req.defaultName);
+            const filePath = await invoke<string>('create_export_path', { filename });
+            const bytes = req.data instanceof Uint8Array ? req.data : new Uint8Array(req.data as ArrayBuffer);
+            await fsWriteFile(filePath, bytes);
+            await this.openPathSafe(filePath);
+            return filePath;
+        }
         const chosen = await dialogSave({
             title: req.dialogTitle,
             defaultPath: this.getExportDefaultPath(req),
@@ -327,16 +336,6 @@ export class TauriMessageBridge extends BaseMessageBridge {
             await fsWriteFile(filePath, bytes);
         }
         return filePath;
-    }
-
-    protected async onPdfSaved(filePath: string): Promise<void> {
-        const open = await dialogAsk(`PDF saved to ${filePath}`, {
-            title: 'PDF export complete',
-            kind: 'info',
-            okLabel: 'Open PDF',
-            cancelLabel: 'Close',
-        });
-        if (open) await this.openPathSafe(filePath);
     }
 
     protected async buildFileContext(_content: string): Promise<{ sourceFilePath?: string }> {
@@ -968,7 +967,14 @@ export class TauriMessageBridge extends BaseMessageBridge {
 
         let accepted = false;
         try {
-            accepted = await dialogAsk(question, {
+            accepted = this._platform === 'linux' ? await this.quickPick!({
+                title: 'Chromium browser required for PDF export',
+                placeholder: question,
+                options: [
+                    { label: 'Download Chromium', value: true },
+                    { label: 'Not now', value: false },
+                ],
+            }) === true : await dialogAsk(question, {
                 title: 'Chromium browser required for PDF export',
                 kind: 'warning',
                 okLabel: 'Download Chromium',

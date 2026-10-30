@@ -1,4 +1,5 @@
 <template>
+  <DesktopTitleBar v-if="isDesktop" :title="windowTitle" :can-save="activeDocumentCanSave" @command="onCommandRequest?.($event)" />
   <div class="app-layout" :class="{ resizing: isAnyDividerDragging }">
     <!-- v-show, not v-if: main.ts mounts a Vue app into #vue-sidebar. -->
     <div
@@ -19,9 +20,120 @@
       :aria-orientation="'vertical'"
       :aria-expanded="sidebarVisible"
     ></div>
-    <!-- UI mode gives the window to the input form; only the tab strip stays.
-         `.work-area` becomes a column for it, otherwise `display: contents`. -->
+    <!-- Document tabs span both the editor and the results. -->
     <div class="work-area" :class="{ 'ui-mode': uiModeFullscreen }">
+      <div class="document-tabs">
+        <template v-for="(group, gi) in groups" :key="group.id">
+          <DocumentTabStrip
+            v-if="uiModeFullscreen ? group.id === activeGroupId : gi === 0"
+            :group-id="group.id"
+            :tabs="group.tabs"
+            :tab-count="tabCount"
+            :active="group.id === activeGroupId && isSplit"
+            @focus="onGroupFocus"
+            @activate="onTabClick"
+            @close="onTabClose"
+            @new="onNewTab"
+            @contextmenu="onTabContextMenu"
+            @wheel="onTabListWheel"
+          />
+        </template>
+        <div v-if="previewVisible" class="results-toolbar" role="toolbar" aria-label="Results controls" @contextmenu.prevent @wheel="onTabListWheel">
+          <div class="preview-mode-group" role="group" aria-label="Result mode">
+            <button
+              v-if="resultModeAvailable('preview')"
+              class="toolbar-btn"
+              :class="{ active: resultMode === 'preview' }"
+              :aria-pressed="resultMode === 'preview'"
+              @click="setResultMode('preview')"
+              :title="t('The document as written — #pre and #post both shown, entered #UI values ignored')"
+            >{{ t('Preview') }}</button>
+            <button
+              v-if="resultModeAvailable('unwrapped')"
+              class="toolbar-btn"
+              :class="{ active: resultMode === 'unwrapped' }"
+              :aria-pressed="resultMode === 'unwrapped'"
+              @click="setResultMode('unwrapped')"
+              :title="t('The source listing, with macros and includes resolved')"
+            >{{ t('Unwrapped') }}</button>
+            <button
+              class="toolbar-btn"
+              :class="{ active: resultMode === 'ui' }"
+              :aria-pressed="resultMode === 'ui'"
+              @click="setResultMode('ui')"
+              :title="t('#UI input form — #post content is hidden')"
+            >{{ t('Input') }}</button>
+            <button
+              v-if="resultModeAvailable('report')"
+              class="toolbar-btn"
+              :class="{ active: resultMode === 'report' }"
+              :aria-pressed="resultMode === 'report'"
+              @click="setResultMode('report')"
+              :title="t('The print layout — #pre hidden, entered #UI values applied')"
+            >{{ t('Report') }}</button>
+          </div>
+          <span v-if="resultMode === 'ui' && hasPauseSteps(uiPause)" class="preview-mode-group">
+            <button
+              class="toolbar-btn"
+              :disabled="uiPause?.previous == null"
+              @click="onUiPauseStep('previous')"
+              :title="t('Back to the previous #pause')"
+            >◀ {{ t('Previous') }}</button>
+            <button
+              class="toolbar-btn"
+              :disabled="uiPause?.next == null"
+              @click="onUiPauseStep('next')"
+              :title="t('Continue past the next #pause')"
+            >{{ t('Next') }} ▶</button>
+          </span>
+          <button
+            v-if="resultMode === 'ui' && uiOverridesDirty"
+            class="toolbar-btn"
+            @click="onSaveUiOverrides"
+            :title="t('Write the entered values into the document so they survive a reload')"
+          >{{ t('Save values') }}</button>
+        </div>
+        <div class="tab-actions" role="toolbar" aria-label="Editor actions">
+          <button
+            class="icon"
+            @click="onRunPreview"
+            :title="autoRunEnabled ? t('Refresh preview (Ctrl+Alt+X)') : t('Run preview (Ctrl+Alt+X)')"
+            :aria-label="autoRunEnabled ? t('Refresh preview') : t('Run preview')"
+          >
+            <RefreshIcon v-if="autoRunEnabled" />
+            <svg v-else viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>
+          </button>
+          <button
+            class="icon"
+            :class="{ active: isSplit }"
+            :disabled="uiModeFullscreen"
+            @click="onToggleSplit"
+            :title="isSplit ? 'Merge editor groups' : 'Split editor down (Ctrl+\\)'"
+            :aria-label="isSplit ? t('Merge editor groups') : t('Split editor down')"
+            :aria-pressed="isSplit"
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2.5" y="2.5" width="11" height="11" rx="1"/><line x1="2.5" y1="8" x2="13.5" y2="8"/></svg>
+          </button>
+          <button
+            class="icon results-sidebar-toggle"
+            @click="uiModeFullscreen ? toggleUiPrint() : togglePreview()"
+            :title="uiModeFullscreen ? (uiPrintVisible ? t('Hide the report') : t('Show the report')) : (previewVisible ? t('Hide the results pane (Ctrl+P)') : t('Show the results pane (Ctrl+P)'))"
+            :aria-label="uiModeFullscreen ? (uiPrintVisible ? t('Hide the report') : t('Show the report')) : (previewVisible ? t('Hide the results pane') : t('Show the results pane'))"
+          >
+            <SidebarIcon side="right" :collapsed="uiModeFullscreen ? !uiPrintVisible : !previewVisible" />
+          </button>
+        </div>
+      </div>
+      <div
+        class="document-panes"
+        :class="{ 'split-layout': isSplit && !uiModeFullscreen }"
+        :style="isSplit && !uiModeFullscreen ? {
+          '--top-group-size': editorSplitRatio + 'fr',
+          '--bottom-group-size': (1 - editorSplitRatio) + 'fr',
+          '--results-width': previewVisible ? previewWidthRatio * 100 + '%' : '0px',
+          '--pane-divider-width': previewVisible ? '4px' : '0px',
+        } : undefined"
+      >
     <div class="editor-pane">
       <div v-if="draggedFileNames.length && !uiModeFullscreen" class="file-drop-overlay" role="status" aria-live="polite">
         <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -39,77 +151,19 @@
             :style="editorGroupStyle(gi)"
             @mousedown="onGroupFocus(group.id)"
           >
-            <div
-              v-if="group.tabs.length > 0"
-              class="tab-strip"
-              :data-tab-group="group.id"
-              @contextmenu.prevent
-            >
-              <div class="tab-list" role="tablist" @wheel="onTabListWheel">
-                <div
-                  v-for="tab in group.tabs"
-                  :key="tab.id"
-                  class="tab"
-                  :data-tab-id="tab.id"
-                  :class="{ active: tab.isActive, dirty: tab.dirty }"
-                  role="tab"
-                  :aria-selected="tab.isActive"
-                  :title="tab.filePath || tab.title"
-                  @mousedown.left="onTabClick(group.id, tab.id)"
-                  @mousedown.middle.prevent="onTabClose(group.id, tab.id)"
-                  @contextmenu.prevent="onTabContextMenu($event, group.id, tab.id)"
-                >
-                  <span class="tab-title">{{ tab.title }}</span>
-                  <span v-if="tab.dirty" class="tab-dirty-dot" :title="'Unsaved changes'">●</span>
-                  <button
-                    class="icon tab-close"
-                    :disabled="tabCount === 1 && tab.filePath === null"
-                    :title="tab.dirty ? 'Close (unsaved changes)' : 'Close'"
-                    @mousedown.stop
-                    @click.stop="onTabClose(group.id, tab.id)"
-                  >
-                    ✕
-                  </button>
-                </div>
-                <button class="icon tab-new" :title="t('New tab (Ctrl+T)')" @click="onNewTab(group.id)">+</button>
-              </div>
-              <!-- First group only; the strip is inside the v-for over groups. -->
-              <div v-if="gi === 0 && !uiModeFullscreen" class="tab-actions">
-                <button
-                  class="icon"
-                  @click="onRunPreview"
-                  :title="t('Run preview (Ctrl+Alt+X)')"
-                  :aria-label="t('Run preview')"
-                >
-                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>
-                </button>
-                <button
-                  class="icon"
-                  :class="{ active: isSplit }"
-                  @click="onToggleSplit"
-                  :title="isSplit ? 'Merge editor groups' : 'Split editor down (Ctrl+\\)'"
-                  :aria-label="isSplit ? 'Merge editor groups' : 'Split editor down'"
-                  :aria-pressed="isSplit"
-                >
-                  <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2.5" y="2.5" width="11" height="11" rx="1"/><line x1="2.5" y1="8" x2="13.5" y2="8"/></svg>
-                </button>
-                <button
-                  v-if="!previewVisible"
-                  class="icon results-sidebar-toggle"
-                  @click="togglePreview"
-                  :title="t('Show the results pane (Ctrl+P)')"
-                  :aria-label="t('Show the results pane')"
-                >
-                  <SidebarIcon side="right" collapsed />
-                </button>
-              </div>
-              <button
-                v-if="isSplit && gi > 0"
-                class="group-close"
-                :title="t('Close this editor group')"
-                @click="onCloseGroup(group.id)"
-              >✕</button>
-            </div>
+            <DocumentTabStrip
+              v-if="gi > 0 && !uiModeFullscreen"
+              :group-id="group.id"
+              :tabs="group.tabs"
+              :tab-count="tabCount"
+              :active="group.id === activeGroupId && isSplit"
+              @focus="onGroupFocus"
+              @activate="onTabClick"
+              @close="onTabClose"
+              @new="onNewTab"
+              @contextmenu="onTabContextMenu"
+              @wheel="onTabListWheel"
+            />
             <!-- Anchors the reveal button to the code area, not the tab strip. -->
             <div v-show="!uiModeFullscreen" class="editor-area">
               <div class="editor-container" :ref="el => setEditorRef(group.id, el)"></div>
@@ -301,89 +355,6 @@
     <!-- Rows the input form and its report in UI mode; `display: contents` otherwise. -->
     <div class="preview-area">
     <div v-if="previewVisible" class="preview-pane" :class="{ fullscreen: uiModeFullscreen }" :style="previewPaneStyle()">
-      <div class="preview-toolbar" @contextmenu.prevent>
-        <span>{{ t('Results') }}</span>
-        <div class="preview-mode-group">
-          <button
-            v-if="resultModeAvailable('preview')"
-            class="toolbar-btn"
-            :class="{ active: resultMode === 'preview' }"
-            @click="setResultMode('preview')"
-            :title="t('The document as written — #pre and #post both shown, entered #UI values ignored')"
-          >{{ t('Preview') }}</button>
-          <button
-            v-if="resultModeAvailable('unwrapped')"
-            class="toolbar-btn"
-            :class="{ active: resultMode === 'unwrapped' }"
-            @click="setResultMode('unwrapped')"
-            :title="t('The source listing, with macros and includes resolved')"
-          >{{ t('Unwrapped') }}</button>
-          <button
-            class="toolbar-btn"
-            :class="{ active: resultMode === 'ui' }"
-            @click="setResultMode('ui')"
-            :title="t('#UI input form — #post content is hidden')"
-          >{{ t('Input') }}</button>
-          <button
-            v-if="resultModeAvailable('report')"
-            class="toolbar-btn"
-            :class="{ active: resultMode === 'report' }"
-            @click="setResultMode('report')"
-            :title="t('The print layout — #pre hidden, entered #UI values applied')"
-          >{{ t('Report') }}</button>
-        </div>
-        <span class="spacer"></span>
-        <span v-if="resultMode === 'ui' && hasPauseSteps(uiPause)" class="preview-mode-group">
-          <button
-            class="toolbar-btn"
-            :disabled="uiPause?.previous == null"
-            @click="onUiPauseStep('previous')"
-            :title="t('Back to the previous #pause')"
-          >◀ {{ t('Previous') }}</button>
-          <button
-            class="toolbar-btn"
-            :disabled="uiPause?.next == null"
-            @click="onUiPauseStep('next')"
-            :title="t('Continue past the next #pause')"
-          >{{ t('Next') }} ▶</button>
-        </span>
-        <button
-          v-if="uiModeFullscreen"
-          class="toolbar-btn"
-          :class="{ active: uiPrintVisible }"
-          @click="toggleUiPrint"
-          :title="t('Show the report the entered values produce')"
-        >Report</button>
-        <button
-          v-if="resultMode === 'report' || resultMode === 'ui'"
-          class="toolbar-btn"
-          @click="onPrintReport"
-          :title="t('Export the report — #pre hidden, entered #UI values applied — as a PDF')"
-        >{{ t('Print PDF') }}</button>
-        <button
-          v-if="resultMode === 'ui' && uiOverridesDirty"
-          class="toolbar-btn"
-          @click="onSaveUiOverrides"
-          :title="t('Write the entered values into the document so they survive a reload')"
-        >{{ t('Save values') }}</button>
-        <template v-if="!activeTabIsCompiled">
-          <button
-            v-if="uiModeFullscreen"
-            class="toolbar-btn"
-            @click="exitUiMode"
-            :title="t('Return to the editor')"
-          >{{ t('Exit input mode') }}</button>
-          <button
-            v-else
-            class="icon results-sidebar-toggle"
-            @click="togglePreview"
-            title="Hide the results pane (Ctrl+P)"
-            aria-label="Hide the results pane"
-          >
-            <SidebarIcon side="right" />
-          </button>
-        </template>
-      </div>
       <!-- One preview iframe per editor group. allow-same-origin is deliberately
            absent: with allow-scripts it would hand untrusted worksheet HTML this
            window's origin. postMessage is the only channel — see injectPreviewAgent. -->
@@ -458,11 +429,6 @@
 
     <!-- Report companion to the input form: the print layout with entered values applied. -->
     <div v-if="uiModeFullscreen && uiPrintVisible" class="preview-pane ui-print-pane" :style="uiPrintPaneStyle()">
-      <div class="preview-toolbar" @contextmenu.prevent>
-        <span>Report</span>
-        <span class="spacer"></span>
-        <button class="toolbar-btn" @click="toggleUiPrint" :title="t('Hide the report')">✕</button>
-      </div>
       <div class="preview-frames">
         <div v-if="activeGroup" class="preview-buffers" :style="{ flex: '1 1 0', minHeight: '0' }">
           <iframe
@@ -478,6 +444,7 @@
       </div>
     </div>
     </div><!-- /.preview-area -->
+      </div><!-- /.document-panes -->
     </div><!-- /.work-area -->
 
     <!-- Replaces the broken native WebView menu (see injectLineLinks). Viewport
@@ -588,6 +555,9 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
+import DesktopTitleBar from './components/DesktopTitleBar.vue'
+import DocumentTabStrip from './components/DocumentTabStrip.vue'
+import RefreshIcon from 'calcpad-frontend/vue/components/RefreshIcon.vue'
 import SidebarIcon from 'calcpad-frontend/vue/components/SidebarIcon.vue'
 import {
   extractBodyHtml,
@@ -616,6 +586,11 @@ import { navigationDirection } from './editor/navigation-history'
 const { t } = useI18n()
 
 const props = withDefaults(defineProps<{ isDesktop?: boolean }>(), { isDesktop: false })
+const autoRunEnabled = ref(true)
+function setAutoRunEnabled(enabled: boolean): void { autoRunEnabled.value = enabled }
+const windowTitle = ref('CalcpadCE')
+const onCommandRequest = ref<((id: string) => void) | null>(null)
+function setWindowTitle(title: string): void { windowTitle.value = title }
 const draggedFileNames = ref<string[]>([])
 let unlistenFileDrag: (() => void) | undefined
 
@@ -642,8 +617,6 @@ const uiOverridesDirty = ref(false)
 const onSaveUiOverridesRequest = ref<(() => void) | null>(null)
 // Asked before the input form closes; false keeps it open.
 const onExitUiModeRequest = ref<(() => Promise<boolean>) | null>(null)
-// "Print PDF" — the host runs the export.
-const onPrintReportRequest = ref<(() => void) | null>(null)
 // #pause steps of the input form; null when it has none.
 const uiPause = ref<UiPauseState | null>(null)
 const onUiPauseStepRequest = ref<((direction: 'next' | 'previous') => void) | null>(null)
@@ -684,6 +657,10 @@ const activeGroupId = ref<string>('g0')
 const isSplit = computed(() => groups.value.length > 1)
 const tabCount = computed(() => groups.value.reduce((count, group) => count + group.tabs.length, 0))
 const activeGroup = computed(() => groups.value.find(g => g.id === activeGroupId.value) ?? groups.value[0])
+const activeDocumentCanSave = computed(() => {
+  const tab = activeGroup.value.tabs.find(tab => tab.isActive)
+  return !!tab && (tab.dirty || tab.filePath === null)
+})
 
 /** A compiled worksheet has no readable source, so input is the only mode offered. */
 const COMPILED_RESULT_MODES: ResultMode[] = ['ui']
@@ -788,11 +765,14 @@ function editorGroupStyle(index: number): Record<string, string> {
 function onEditorDividerMouseDown(e: MouseEvent): void {
   e.preventDefault()
   draggingEditorDivider.value = true
-  const container = (e.currentTarget as HTMLElement).parentElement
-  if (!container) return
+  const divider = e.currentTarget as HTMLElement
+  const container = divider.closest('.document-panes') as HTMLElement
   const rect = container.getBoundingClientRect()
+  const tabStrip = container.querySelector('.tab-strip') as HTMLElement
+  const panel = container.querySelector('.bottom-panel') as HTMLElement | null
+  const availableHeight = rect.height - divider.offsetHeight - tabStrip.offsetHeight - (panel?.offsetHeight ?? 0)
   const onMove = (ev: MouseEvent) => {
-    const frac = (ev.clientY - rect.top) / rect.height
+    const frac = (ev.clientY - rect.top) / availableHeight
     editorSplitRatio.value = Math.min(0.85, Math.max(0.15, frac))
   }
   const onUp = () => {
@@ -828,18 +808,17 @@ function previewPaneStyle(): Record<string, string> | undefined {
   if (uiModeFullscreen.value) {
     return uiPrintVisible.value ? { flex: `0 0 ${(1 - uiPrintWidthRatio.value) * 100}%` } : undefined
   }
-  return { width: `${previewWidthRatio.value * 100}%` }
+  return isSplit.value ? undefined : { width: `${previewWidthRatio.value * 100}%` }
 }
 
 function uiPrintPaneStyle(): Record<string, string> {
   return { flex: `0 0 ${uiPrintWidthRatio.value * 100}%` }
 }
 
-// Measured against `.app-layout`: `.work-area` is `display: contents` and has no box.
 function onPreviewDividerMouseDown(e: MouseEvent): void {
   e.preventDefault()
   draggingPreviewDivider.value = true
-  const container = (e.currentTarget as HTMLElement).closest('.app-layout') as HTMLElement | null
+  const container = (e.currentTarget as HTMLElement).closest('.document-panes') as HTMLElement | null
   if (!container) return
   const rect = container.getBoundingClientRect()
   let moved = false
@@ -932,9 +911,6 @@ function onToggleSplit(): void {
   } else {
     onSplitRequest.value?.()
   }
-}
-function onCloseGroup(groupId: string): void {
-  onCloseGroupRequest.value?.(groupId)
 }
 function onGroupFocus(groupId: string): void {
   if (activeGroupId.value !== groupId) onGroupFocusRequest.value?.(groupId)
@@ -1674,21 +1650,12 @@ function onSaveUiOverrides(): void {
   onSaveUiOverridesRequest.value?.()
 }
 
-function onPrintReport(): void {
-  onPrintReportRequest.value?.()
-}
-
 function setUiPauseState(state: UiPauseState | null): void {
   uiPause.value = state
 }
 
 function onUiPauseStep(direction: 'next' | 'previous'): void {
   onUiPauseStepRequest.value?.(direction)
-}
-
-/** Leaves the fullscreen input form for the report view, bringing the editor back. */
-function exitUiMode(): void {
-  void setResultMode('report')
 }
 
 function setPreviewLoading(groupId: string, loading: boolean): void {
@@ -2420,6 +2387,9 @@ function resolveQuickPick(index: number | null): void {
 }
 
 defineExpose({
+  setAutoRunEnabled,
+  setWindowTitle,
+  onCommandRequest,
   // group lifecycle
   addGroup,
   removeGroup,
@@ -2453,7 +2423,6 @@ defineExpose({
   setUiOverridesDirty,
   onSaveUiOverridesRequest,
   onExitUiModeRequest,
-  onPrintReportRequest,
   setUiPauseState,
   onUiPauseStepRequest,
   setUiPrintHtml,

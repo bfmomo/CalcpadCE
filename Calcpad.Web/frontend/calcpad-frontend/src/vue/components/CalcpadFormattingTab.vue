@@ -34,7 +34,9 @@
       </div>
 
       <div class="actions">
-        <button @click="onPrettify">{{ t('Prettify Document') }}</button>
+        <button @click="onPrettify" :disabled="sourceUnavailable" :title="sourceUnavailable ? t('Unavailable in input mode') : undefined">
+          {{ t('Prettify Document') }}
+        </button>
       </div>
     </div>
   </div>
@@ -45,12 +47,14 @@ import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
 interface Props {
+  sourceUnavailable?: boolean
   indentStyle?: 'tab' | 'space'
   indentSize?: number
   trimTrailingWhitespace?: boolean
 }
 
 withDefaults(defineProps<Props>(), {
+  sourceUnavailable: false,
   indentStyle: 'tab',
   indentSize: 4,
   trimTrailingWhitespace: true
@@ -86,7 +90,6 @@ function onPrettify() {
 
 <style scoped>
 .formatting-tab {
-  height: 100%;
   display: flex;
   flex-direction: column;
 }
@@ -94,7 +97,7 @@ function onPrettify() {
 .formatting-container {
   overflow-y: auto;
   flex: 1;
-  padding: 12px;
+  padding: 0;
 }
 
 .section-title {

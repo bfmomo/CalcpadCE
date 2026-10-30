@@ -31,6 +31,7 @@ export interface ExportRequest {
     mime: string;
     extensions: string[];
     dialogTitle: string;
+    openDirectly?: boolean;
 }
 
 /** A sidebar form whose unapplied edits the host prompts about before closing a document. */
@@ -382,13 +383,13 @@ export abstract class BaseMessageBridge {
                 this.handleGetPdfSettings();
                 break;
             case 'generatePdf':
-                this.handleGeneratePdf(message.variant);
+                this.handleGeneratePdf(message.variant, message.openDirectly);
                 break;
             case 'saveSourceHtml':
                 this.handleSaveSourceHtml(message.variant);
                 break;
             case 'saveDocx':
-                this.handleSaveDocx(message.variant);
+                this.handleSaveDocx(message.variant, message.openDirectly);
                 break;
             case 'saveCompiled':
                 this.saveCompiled();
@@ -828,7 +829,7 @@ export abstract class BaseMessageBridge {
         });
     }
 
-    private async handleSaveDocx(variant: ExportVariant = 'report'): Promise<void> {
+    private async handleSaveDocx(variant: ExportVariant = 'report', openDirectly = false): Promise<void> {
         const render = variantRender(variant, this.previewAppliesUiOverrides());
         // A form and a code listing have no meaningful Word rendering, so the Export tab
         // doesn't offer them; guard anyway rather than emit a nonsense document.
@@ -848,6 +849,7 @@ export abstract class BaseMessageBridge {
             mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             extensions: ['docx'],
             dialogTitle: exportDialogTitle('Save', 'Word Document', variant),
+            openDirectly,
         });
     }
 
@@ -1017,7 +1019,7 @@ export abstract class BaseMessageBridge {
         });
     }
 
-    private async handleGeneratePdf(variant: ExportVariant = 'report'): Promise<void> {
+    private async handleGeneratePdf(variant: ExportVariant = 'report', openDirectly = false): Promise<void> {
         if (!(await this.runPdfPreflight())) return;
 
         const content = this.getActiveEditorContent();
@@ -1036,6 +1038,7 @@ export abstract class BaseMessageBridge {
                     mime: 'application/pdf',
                     extensions: ['pdf'],
                     dialogTitle: exportDialogTitle('Export', 'PDF', variant),
+                    openDirectly,
                 });
                 if (savedPath) await this.onPdfSaved(savedPath);
                 return;

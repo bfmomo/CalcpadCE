@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { describe, test } from 'node:test';
 import { TestApp, invoke, until } from './test-app.mjs';
 
@@ -419,8 +420,8 @@ describe('desktop windows', {skip: process.platform !== 'win32', concurrency: fa
         })()`);
         await dragTab(app, main, moved, main, linked);
         await until(() => app.evaluate(main, `document.querySelector('[data-tab-group="g1"] .tab-title')?.textContent === 'Moved'`), 'tab moved to split group');
+        await until(() => app.evaluate(main, `document.querySelector('[data-tab-id="${moved}"]') === null`), 'source tab removed');
         assert.equal(await app.evaluate(main, 'window.calcpadActiveEditor.getModel() === window.testMovedModel'), true);
-        assert.equal(await app.evaluate(main, `document.querySelector('[data-tab-id="${moved}"]') === null`), true);
         await app.evaluate(main, 'window.calcpadActiveEditor.getModel().undo()');
         assert.equal(await app.evaluate(main, 'window.calcpadActiveEditor.getValue()'), '');
         await app.stop(main, 'main');
@@ -429,14 +430,14 @@ describe('desktop windows', {skip: process.platform !== 'win32', concurrency: fa
     test('dropping a tab onto a different open version preserves both documents', {timeout: 90000}, async t => {
         const app = new TestApp();
         t.after(() => app.dispose());
-        const main = await app.start();
-        const second = await app.newWindow(main);
         const file = app.fixture('conflicting worksheet.cpd', 'saved = 1');
-        for (const [page, label] of [[main, 'main'], [second.page, second.label]]) {
-            await app.focus(page, label);
-            await app.relaunch([file]);
-            await app.fileOpen(page, file);
-        }
+        const main = await app.start([file]);
+        await app.fileOpen(main, file);
+        const second = await app.newWindow(main);
+        await app.evaluate(second.page, `window.dispatchEvent(new CustomEvent('calcpad-open-file', {
+            detail: {path: ${JSON.stringify(file)}}
+        }))`);
+        await app.fileOpen(second.page, file);
         await app.evaluate(main, "window.calcpadActiveEditor.setValue('source = 2')");
         await app.evaluate(second.page, "window.calcpadActiveEditor.setValue('destination = 3')");
         const tabId = await app.evaluate(main, 'window.calcpadTabs.activeId');
@@ -444,9 +445,146 @@ describe('desktop windows', {skip: process.platform !== 'win32', concurrency: fa
         await until(() => app.evaluate(second.page, "document.body.textContent.includes('already has a different version open')"), 'conflict reported');
         assert.equal(await app.evaluate(main, 'window.calcpadActiveEditor.getValue()'), 'source = 2');
         assert.equal(await app.evaluate(second.page, 'window.calcpadActiveEditor.getValue()'), 'destination = 3');
+        for (const page of [main, second.page]) {
+            assert.equal(await app.evaluate(page, 'window.calcpadTabs.count'), 1);
+            assert.equal(await app.evaluate(page, 'window.calcpadTabs.activeTab.filePath'), file);
+            assert.equal(await app.evaluate(page, 'window.calcpadTabs.isDirty()'), true);
+        }
+        assert.equal(readFileSync(file, 'utf8'), 'saved = 1');
         for (const page of [main, second.page]) await app.evaluate(page, "window.calcpadBridge.confirmThreeWay = async () => 'no'");
         await app.closeAndWait(main, 'main');
         await app.stop(second.page, second.label);
+    });
+
+    test('title bar actions use the active document and temporary exports open after writing', {timeout: 90000}, async t => {
+        const app = new TestApp();
+        t.after(() => app.dispose());
+        const main = await app.start();
+        const file = app.fixture('toolbar worksheet.cpd');
+        await app.evaluate(main, `
+            window.exportOpened = [];
+            window.openCalls = 0;
+            window.testErrors = [];
+            window.addEventListener('unhandledrejection', event => window.testErrors.push(String(event.reason)));
+            window.calcpadBridge.openFile = async () => {
+                window.openCalls++;
+                return {path: ${JSON.stringify(file)}, content: 'a = 1'};
+            };
+            window.calcpadBridge.openPathSafe = async path => {
+                const bytes = await window.__TAURI_INTERNALS__.invoke('plugin:fs|read_file', {path, options: {}});
+                window.exportOpened.push({path, size: new Uint8Array(bytes).byteLength});
+            };
+            document.querySelector('[aria-label="Open document"]').click();
+        `);
+        await app.fileOpen(main, file);
+        assert.match(await app.evaluate(main, 'document.querySelector(".titlebar-caption").textContent'), /toolbar worksheet/);
+        await app.evaluate(main, `window.calcpadActiveEditor.setValue('toolbar = 299')`);
+        await until(async () => !await app.evaluate(main, `document.querySelector('[aria-label="Save document"]').disabled`), 'editing enables Save');
+        await app.evaluate(main, `document.querySelector('[aria-label="Save document"]').click()`);
+        await until(() => readFileSync(file, 'utf8').split(/\r?\n/)[0] === 'toolbar = 299', 'toolbar saves current document');
+        await until(() => app.evaluate(main, `document.querySelector('[aria-label="Save document"]').disabled`), 'saved document disables Save');
+        await app.evaluate(main, `window.calcpadActiveEditor.setValue('toolbar = 300')`);
+        await until(async () => !await app.evaluate(main, `document.querySelector('[aria-label="Save document"]').disabled`), 'editing enables Save');
+        await app.evaluate(main, `document.querySelector('[aria-label="Save document"]').click()`);
+        await until(() => app.evaluate(main, `document.querySelector('[aria-label="Save document"]').disabled`), 'saved changes disable Save');
+        for (const [label, extension, signature] of [['Export to PDF', '.pdf', '%PDF-'], ['Export to Word', '.docx', 'PK']]) {
+            await app.evaluate(main, `document.querySelector('[aria-label="${label}"]').click()`);
+            const opened = await until(async () => (await app.evaluate(main, 'window.exportOpened')).find(entry => entry.path.endsWith(extension)), `${label} opened`);
+            assert.equal(path.basename(opened.path), `toolbar worksheet${extension}`);
+            assert.ok(path.resolve(opened.path).startsWith(path.resolve(os.tmpdir()) + path.sep));
+            assert.ok(opened.size > 0);
+            assert.equal(readFileSync(opened.path).subarray(0, signature.length).toString(), signature);
+        }
+        assert.equal(await app.evaluate(main, 'window.openCalls'), 1);
+        assert.deepEqual(await app.evaluate(main, 'window.testErrors'), []);
+        const first = await app.evaluate(main, invoke('create_export_path', {filename: 'same.pdf'}));
+        const second = await app.evaluate(main, invoke('create_export_path', {filename: 'same.pdf'}));
+        assert.notEqual(path.dirname(first), path.dirname(second));
+        await app.stop(main, 'main');
+    });
+
+    test('tabs span the editor and results in every mode and custom window controls work', {timeout: 90000}, async t => {
+        const app = new TestApp();
+        t.after(() => app.dispose());
+        const main = await app.start();
+        const titlebar = await app.evaluate(main, `(() => {
+            const box = selector => document.querySelector(selector).getBoundingClientRect();
+            const center = selector => {const b = box(selector); return {x: b.x + b.width / 2, y: b.y + b.height / 2};};
+            return {
+                bar: center('.desktop-titlebar'), caption: center('.titlebar-caption'),
+                logo: center('.titlebar-logo'), menuIcon: center('[aria-label="File menu"] svg'), menuText: center('[aria-label="File menu"] span'),
+                menuFont: getComputedStyle(document.querySelector('[aria-label="File menu"]')).fontSize,
+                captionFont: getComputedStyle(document.querySelector('.titlebar-caption')).fontSize,
+                appFont: getComputedStyle(document.body).fontSize,
+            };
+        })()`);
+        assert.equal(titlebar.menuFont, titlebar.appFont);
+        assert.equal(titlebar.captionFont, titlebar.appFont);
+        assert.ok(Math.abs(titlebar.caption.x - titlebar.bar.x) < 1);
+        assert.equal(titlebar.menuIcon.y, titlebar.logo.y);
+        assert.ok(Math.abs(titlebar.menuText.y - titlebar.logo.y) < 1);
+        for (const mode of ['preview', 'unwrapped', 'ui', 'report']) {
+            const label = {preview: 'Preview', unwrapped: 'Unwrapped', ui: 'Input', report: 'Report'}[mode];
+            await app.evaluate(main, `[...document.querySelectorAll('.results-toolbar [aria-label="Result mode"] button')].find(button => button.textContent === '${label}').click()`);
+            const boxes = await app.evaluate(main, `(() => {
+                const box = selector => document.querySelector(selector).getBoundingClientRect().toJSON();
+                return {tabs: box('.document-tabs'), panes: box('.document-panes'), strip: box('.tab-strip'), preview: box('.preview-pane'), toolbar: box('.document-tabs .results-toolbar')};
+            })()`);
+            assert.equal(boxes.tabs.x, boxes.panes.x, mode);
+            assert.equal(boxes.tabs.width, boxes.panes.width, mode);
+            assert.ok(boxes.strip.width > 0, mode);
+            assert.equal(boxes.strip.right, boxes.toolbar.left, mode);
+            assert.equal(boxes.toolbar.y, boxes.strip.y, mode);
+            assert.equal(boxes.preview.y, boxes.tabs.bottom, mode);
+            assert.ok(boxes.preview.height > 0, mode);
+            assert.equal(await app.evaluate(main, `document.querySelector('.results-toolbar [aria-label="Result mode"] [aria-pressed="true"]').textContent`), label);
+        }
+        await app.evaluate(main, `document.querySelector('[aria-label="Hide the results pane"]').click()`);
+        assert.equal(await app.evaluate(main, `document.querySelector('.results-toolbar')`), null);
+        await app.evaluate(main, `document.querySelector('[aria-label="Show the results pane"]').click()`);
+        assert.equal(await app.evaluate(main, `!!document.querySelector('.document-tabs .results-toolbar')`), true);
+        assert.deepEqual(await app.evaluate(main, `[...document.querySelectorAll('.document-tabs [aria-label="Editor actions"] button')].map(button => button.getAttribute('aria-label'))`), ['Refresh preview', 'Split editor down', 'Hide the results pane']);
+        const iconSizes = await app.evaluate(main, `['[aria-label="Split editor down"] svg', '[aria-label="Hide the results pane"] svg', '#vue-sidebar [aria-label="Split panel"] svg', '#vue-sidebar [aria-label="Hide the sidebar"] svg'].map(selector => {const rect = document.querySelector(selector).getBoundingClientRect(); return {width: rect.width, height: rect.height};})`);
+        for (const size of iconSizes) assert.deepEqual(size, iconSizes[0]);
+        await app.evaluate(main, `document.querySelector('[aria-label="Maximize"]').click()`);
+        await until(async () => (await app.geometry(main)).maximized, 'custom maximize button');
+        await until(() => app.evaluate(main, `!!document.querySelector('[aria-label="Restore"]')`), 'restore label');
+        await app.evaluate(main, `document.querySelector('[aria-label="Restore"]').click()`);
+        await until(async () => !(await app.geometry(main)).maximized, 'custom restore button');
+        await app.evaluate(main, `document.querySelector('[aria-label="Minimize"]').click()`);
+        await until(() => app.evaluate(main, invoke('plugin:window|is_minimized')), 'custom minimize button');
+        await app.evaluate(main, invoke('plugin:window|unminimize'));
+        await app.evaluate(main, `setTimeout(() => document.querySelector('[aria-label="Close window"]').click(), 50)`);
+        const [code] = await app.exited;
+        assert.equal(code, 0);
+        app.runner = null;
+    });
+
+    test('Files shares the sidebar tabs and Settings contains formatting and auto-run controls', {timeout: 90000}, async t => {
+        const app = new TestApp();
+        t.after(() => app.dispose());
+        const main = await app.start();
+        const file = app.fixture('sidebar worksheet.cpd');
+        const sidebarTab = label => `[...document.querySelectorAll('#vue-sidebar .tab-container > .tab')].find(button => button.textContent.trim() === '${label}').click()`;
+        assert.equal(await app.evaluate(main, `!!document.querySelector('#vue-sidebar .activity-icons')`), false);
+        assert.equal(await app.evaluate(main, `[...document.querySelectorAll('#vue-sidebar .tab-container > .tab')].some(button => button.textContent.trim() === 'Formatting')`), false);
+        await app.evaluate(main, `window.calcpadBridge.getOpenedFolder = async () => ${JSON.stringify(path.dirname(file))}; ${sidebarTab('Files')}`);
+        await until(() => app.evaluate(main, `[...document.querySelectorAll('#vue-sidebar .tree-label')].some(label => label.title === ${JSON.stringify(file)})`), 'Files tab loads folder');
+        await app.evaluate(main, `[...document.querySelectorAll('#vue-sidebar .tree-label')].find(label => label.title === ${JSON.stringify(file)}).closest('.tree-row').click()`);
+        await app.fileOpen(main, file);
+        await app.evaluate(main, sidebarTab('Settings'));
+        await app.evaluate(main, `(() => { const search = document.querySelector('.settings-toolbar input'); search.value = 'prettify'; search.dispatchEvent(new Event('input', {bubbles: true})); window.calcpadActiveEditor.setValue('a = 1   '); })()`);
+        assert.equal(await app.evaluate(main, `document.querySelector('.settings-tab .formatting-tab').checkVisibility()`), true);
+        await app.evaluate(main, `document.querySelector('.settings-tab .formatting-tab button').click()`);
+        await until(() => app.evaluate(main, `window.calcpadActiveEditor.getValue() === 'a = 1'`), 'Prettify in Settings trims whitespace');
+        await app.evaluate(main, `(() => { const search = document.querySelector('.settings-toolbar input'); search.value = 'auto-run'; search.dispatchEvent(new Event('input', {bubbles: true})); })()`);
+        await app.evaluate(main, `[...document.querySelectorAll('.settings-tab label')].find(label => label.textContent.includes('Auto-Run Preview')).querySelector('input').click()`);
+        await until(() => app.evaluate(main, `!!document.querySelector('[aria-label="Editor actions"] [aria-label="Run preview"]')`), 'auto-run off shows Play');
+        await app.evaluate(main, `[...document.querySelectorAll('.settings-tab label')].find(label => label.textContent.includes('Auto-Run Preview')).querySelector('input').click()`);
+        await until(() => app.evaluate(main, `!!document.querySelector('[aria-label="Editor actions"] [aria-label="Refresh preview"]')`), 'auto-run on shows Refresh');
+        assert.equal(await app.evaluate(main, `document.querySelector('[aria-label="File menu"]') && getComputedStyle(document.querySelector('[aria-label="File menu"]')).cursor`), 'default');
+        await app.evaluate(main, `window.calcpadBridge.confirmThreeWay = async () => 'no'`);
+        await app.stop(main, 'main');
     });
 
     test('new windows focus their webview when opened from an existing window or a repeat launch', {timeout: 90000}, async t => {
@@ -489,7 +627,7 @@ describe('desktop windows', {skip: process.platform !== 'win32', concurrency: fa
 
         const title = await app.evaluate(main, 'document.title');
         assert.equal(await app.evaluate(secondPage, 'document.title'), title);
-        assert.equal(await app.evaluate(secondPage, invoke('plugin:window|title')), title);
+        await until(async () => await app.evaluate(secondPage, invoke('plugin:window|title')) === title, 'native title matches document title');
 
         const firstFile = app.fixture('first worksheet.cpd');
         await app.focus(secondPage, secondLabel);
