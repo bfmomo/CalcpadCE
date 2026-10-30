@@ -77,6 +77,7 @@ namespace Calcpad.Cli
             }
             catch (Exception ex)
             {
+                Environment.ExitCode = 1;
                 try
                 {
                     Console.ForegroundColor = ConsoleColor.Red;
