@@ -8,13 +8,13 @@
           <div v-for="group in visibleExportGroups" :key="group.variant" class="export-group">
             <h4 class="export-group-title" :title="group.detail">{{ group.label }}</h4>
             <div class="header-actions">
-              <button @click="$emit('savePdf', group.variant)" :title="`Save this document's ${group.label.toLowerCase()} as a PDF`">{{ t('Save PDF…') }}</button>
+              <button @click="$emit('savePdf', group.variant)" :title="t('Save this document\'s {variant} as a PDF', { variant: t(group.label).toLowerCase() })">{{ t('Save PDF…') }}</button>
               <button
                 v-if="group.word"
                 @click="$emit('saveDocx', group.variant)"
-                :title="`Save this document's ${group.label.toLowerCase()} as a Word .docx file`"
+                :title="t('Save this document\'s {variant} as a Word .docx file', { variant: t(group.label).toLowerCase() })"
               >{{ t('Save Word…') }}</button>
-              <button @click="$emit('saveHtml', group.variant)" :title="`Save this document's ${group.label.toLowerCase()} as standalone HTML`">{{ t('Save HTML…') }}</button>
+              <button @click="$emit('saveHtml', group.variant)" :title="t('Save this document\'s {variant} as standalone HTML', { variant: t(group.label).toLowerCase() })">{{ t('Save HTML…') }}</button>
             </div>
           </div>
         </div>

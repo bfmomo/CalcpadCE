@@ -17,7 +17,7 @@ export type LocaleSetting = 'auto' | CalcpadLocale
 const STORAGE_KEY = 'calcpad.locale'
 
 export const LOCALE_OPTIONS: { value: LocaleSetting; label: string }[] = [
-    { value: 'auto', label: 'Auto（跟随系统）' },
+    { value: 'auto', label: 'Auto' },
     { value: 'en', label: 'English' },
     { value: 'zh', label: '中文' },
 ]

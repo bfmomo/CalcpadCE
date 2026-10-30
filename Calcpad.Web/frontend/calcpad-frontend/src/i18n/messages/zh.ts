@@ -287,7 +287,32 @@ const zh: Record<string, string> = {
     "Show the report the entered values produce": "显示已输入数值生成的报表",
     "Export the report — #pre hidden, entered #UI values applied — as a PDF": "导出报表 PDF（隐藏 #pre，应用已输入的 #UI 值）",
     "Write the entered values into the document so they survive a reload": "将已输入的数值写入文档，重载后仍保留",
-    "Return to the editor": "返回编辑器"
+    "Return to the editor": "返回编辑器",
+    "File menu (Alt+M)": "文件菜单（Alt+M）",
+    "File menu": "文件菜单",
+    "Minimize": "最小化",
+    "Restore": "还原",
+    "Maximize": "最大化",
+    "Close window": "关闭窗口",
+    "Save document": "保存文档",
+    "Save document (Ctrl+S)": "保存文档（Ctrl+S）",
+    "Open document": "打开文档",
+    "Open document (Ctrl+O)": "打开文档（Ctrl+O）",
+    "Export to PDF": "导出 PDF",
+    "Export report to PDF and open (Ctrl+E)": "导出报表 PDF 并打开（Ctrl+E）",
+    "Export to Word": "导出 Word",
+    "Export report to Word and open": "导出报表 Word 并打开",
+    "Refresh preview": "刷新预览",
+    "Refresh preview (Ctrl+Alt+X)": "刷新预览（Ctrl+Alt+X）",
+    "Show the report": "显示报表",
+    "Hide the results pane": "隐藏结果窗格",
+    "Unavailable in input mode": "输入模式下不可用",
+    "Merge editor groups": "合并编辑组",
+    "Split editor down": "向下拆分编辑器",
+    "Split editor down (Ctrl+\\)": "向下拆分编辑器（Ctrl+\\）",
+    "Save this document's {variant} as a PDF": "将此文档的 {variant} 保存为 PDF",
+    "Save this document's {variant} as a Word .docx file": "将此文档的 {variant} 保存为 Word .docx 文件",
+    "Save this document's {variant} as standalone HTML": "将此文档的 {variant} 保存为独立 HTML"
 }
 
 export default zh
