@@ -98,6 +98,61 @@ That snippet also contains examples to change font sizes, so here is a condensed
 #end val
 ```
 
+### `"` headings render as `<h1>` instead of `<h3>`
+
+A `"Title` line now renders as `<h1>`, so the report outline starts at the top level and leaves room for more levels of subsections below it.
+The heading sizes were scaled down to match, so `<h1>` is the size `<h3>` used to be.
+
+| Element | Before | Now |
+| ------- | ------ | --- |
+| `h1` | 2.1em | 1.4em |
+| `h2` | 1.7em | 1.32em |
+| `h3` | 1.4em | 1.24em |
+| `h4` | 1.2em | 1.16em |
+| `h5` | 1.1em | 1.08em |
+| `h6` | 1em | 1em |
+
+#### What breaks
+
+Only the report appearance changes.
+`"` headings look the same as before, but HTML headings (`'<h1>` to `'<h6>`) and Markdown headings (`#` to `######`) render smaller.
+Custom CSS that targeted `h3` to style `"` headings now needs to target `h1`.
+
+#### How to update
+
+There are two ways to get a report to render exactly as before.
+
+**Option 1:** restore the old sizes for every level and convert each `"Title` line to `'<h3>Title</h3>`.
+This works for any document, but each `"` heading has to be changed:
+
+```calcpad
+#val
+'<style>
+'  h1 { font-size: 2.1em; }
+'  h2 { font-size: 1.7em; }
+'  h3 { font-size: 1.4em; }
+'  h4 { font-size: 1.2em; }
+'  h5 { font-size: 1.1em; }
+'  h6 { font-size: 1em; }
+'</style>
+#end val
+```
+
+**Option 2:** keep `h1` at 1.4em and restore the old sizes for the other levels.
+No headings need to be edited, but this breaks the table of contents order and only works if the document has no `'<h1>` or `#` headings of its own:
+
+```calcpad
+#val
+'<style>
+'  h2 { font-size: 1.7em; }
+'  h3 { font-size: 1.4em; }
+'  h4 { font-size: 1.2em; }
+'  h5 { font-size: 1.1em; }
+'  h6 { font-size: 1em; }
+'</style>
+#end val
+```
+
 ### Dots are no longer allowed as part of a variable name
 
 A dot after an identifier is now always element access. Names can no longer contain a dot.
