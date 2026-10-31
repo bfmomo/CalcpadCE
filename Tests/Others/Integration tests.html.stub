@@ -62,7 +62,7 @@
    <var>t</var>
   </span>
  </p>
- <h3>Integration tests</h3>
+ <h1>Integration tests</h1>
  <p>
   <span class="eq">
    <var>I</var>
@@ -22417,7 +22417,7 @@
   </span>
   Euler-Mascheroni constant
  </p>
- <h3>Expected results</h3>
+ <h1>Expected results</h1>
  <p>
   <span class="eq">
    <var>R</var>
@@ -33950,7 +33950,7 @@
    = 0.663
   </span>
  </p>
- <h3>Checks</h3>
+ <h1>Checks</h1>
  <p>
   <span class="eq">
    <var>tol</var>

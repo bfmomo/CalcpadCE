@@ -290,7 +290,6 @@ const zh: Record<string, string> = {
     "Return to the editor": "返回编辑器",
     "File menu (Alt+M)": "文件菜单（Alt+M）",
     "File menu": "文件菜单",
-    "File": "文件",
     "Minimize": "最小化",
     "Restore": "还原",
     "Maximize": "最大化",
@@ -313,7 +312,14 @@ const zh: Record<string, string> = {
     "Split editor down (Ctrl+\\)": "向下拆分编辑器（Ctrl+\\）",
     "Save this document's {variant} as a PDF": "将此文档的 {variant} 保存为 PDF",
     "Save this document's {variant} as a Word .docx file": "将此文档的 {variant} 保存为 Word .docx 文件",
-    "Save this document's {variant} as standalone HTML": "将此文档的 {variant} 保存为独立 HTML"
+    "Save this document's {variant} as standalone HTML": "将此文档的 {variant} 保存为独立 HTML",
+    "All open documents": "所有打开的文档",
+    "Unsaved changes": "有未保存的更改",
+    "Close (unsaved changes)": "关闭（有未保存的更改）",
+    "New tab": "新建标签页",
+    "File": "文件",
+    "or markdown": "或 Markdown",
+    "syntax.": "语法。"
 }
 
 export default zh

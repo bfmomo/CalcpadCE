@@ -241,8 +241,8 @@ export {
     formatMacroCompletion,
     formatFunctionCompletion,
     formatVariableCompletion,
-    formatCustomUnitCompletion,
     formatBuiltinSnippetCompletion,
+    isCompletableBuiltin,
 } from './text/completion-format';
 export {
     INDENT_INCREASE_PATTERNS,

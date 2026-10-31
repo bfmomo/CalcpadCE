@@ -482,7 +482,7 @@ namespace Calcpad.Core
                     _sb.Append("</div>");
 
                 if (lineType == TokenTypes.Heading)
-                    _sb.Append($"<h3{htmlId}>");
+                    _sb.Append($"<h1{htmlId}>");
                 else if (lineType != TokenTypes.Html)
                     _sb.Append($"<p{htmlId}>");
             }
@@ -490,7 +490,7 @@ namespace Calcpad.Core
             void AppendHtmlLineEnd(TokenTypes lineType, bool indent)
             {
                 if (lineType == TokenTypes.Heading)
-                    _sb.Append("</h3>");
+                    _sb.Append("</h1>");
                 else if (lineType != TokenTypes.Html)
                     _sb.Append("</p>");
 
