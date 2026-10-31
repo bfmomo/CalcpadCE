@@ -49,15 +49,27 @@ if (!Array.isArray(zh)) {
     process.exit(1)
 }
 
-const map = {}
+// One English string can occur at several indices. Keep it only when every index
+// agrees on the translation; otherwise the English text would silently pick one
+// context's wording, so leave those in English.
+const byEnglish = new Map()
+const ambiguous = new Set()
 for (const index of [...english.keys()].sort((a, b) => a - b)) {
     const source = english.get(index)
     const target = zh[index]
-    if (typeof target === 'string' && target && target !== source && !(source in map)) {
-        map[source] = target
-    }
+    if (typeof target !== 'string' || !target || target === source) continue
+    const existing = byEnglish.get(source)
+    if (existing === undefined) byEnglish.set(source, target)
+    else if (existing !== target) ambiguous.add(source)
 }
+for (const source of ambiguous) byEnglish.delete(source)
+
+const map = {}
+for (const source of [...byEnglish.keys()].sort()) map[source] = byEnglish.get(source)
 
 const output = path.join(webRoot, 'src/editor/monaco-zh-map.json')
 fs.writeFileSync(output, JSON.stringify(map))
 console.log(`wrote ${Object.keys(map).length} entries to ${path.relative(frontendRoot, output)}`)
+if (ambiguous.size) {
+    console.log(`skipped ${ambiguous.size} ambiguous string(s): ${[...ambiguous].sort().join(' | ')}`)
+}
